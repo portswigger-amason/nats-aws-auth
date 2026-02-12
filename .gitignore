@@ -1,0 +1,38 @@
+# Build artifacts
+/out/
+coverage.out
+
+# Runtime directories
+/jwt/
+/jetstream/
+
+# Generated files
+*.conf
+*.creds
+*.nk
+*.jwt
+!testdata/*.jwt
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code local settings
+.claude/
