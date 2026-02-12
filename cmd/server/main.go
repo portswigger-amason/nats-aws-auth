@@ -212,7 +212,7 @@ func runGenerate(ctx context.Context, operatorName, sysAccountName, authAccountN
 func createOperatorJWT(operatorPubKey, operatorName, systemAccount string, signer jwt.SignFn) (string, error) {
 	claims := jwt.NewOperatorClaims(operatorPubKey)
 	claims.Name = operatorName
-	claims.Operator.SystemAccount = systemAccount
+	claims.SystemAccount = systemAccount
 	claims.IssuedAt = time.Now().Unix()
 
 	// Create a dummy keypair for the issuer validation
@@ -232,14 +232,14 @@ func createAccountJWT(accountPubKey, accountName, issuerPubKey string, signer jw
 	claims.IssuedAt = time.Now().Unix()
 
 	// Set unlimited limits
-	claims.Account.Limits.Conn = -1
-	claims.Account.Limits.LeafNodeConn = -1
-	claims.Account.Limits.Subs = -1
-	claims.Account.Limits.Data = -1
-	claims.Account.Limits.Payload = -1
-	claims.Account.Limits.Imports = -1
-	claims.Account.Limits.Exports = -1
-	claims.Account.Limits.WildcardExports = true
+	claims.Limits.Conn = -1
+	claims.Limits.LeafNodeConn = -1
+	claims.Limits.Subs = -1
+	claims.Limits.Data = -1
+	claims.Limits.Payload = -1
+	claims.Limits.Imports = -1
+	claims.Limits.Exports = -1
+	claims.Limits.WildcardExports = true
 
 	// Create a dummy keypair for the issuer
 	kp := &dummyKeyPair{pubKey: issuerPubKey}
@@ -258,11 +258,11 @@ func createSentinelUserJWTForGenerate(userPubKey string, issuerKeyPair nkeys.Key
 	claims.IssuedAt = time.Now().Unix()
 
 	// Enable bearer token - allows connection without nonce signing
-	claims.User.BearerToken = true
+	claims.BearerToken = true
 
 	// No permissions - sentinel user has no access
-	claims.User.Permissions.Pub.Deny.Add(">")
-	claims.User.Permissions.Sub.Deny.Add(">")
+	claims.Pub.Deny.Add(">")
+	claims.Sub.Deny.Add(">")
 
 	token, err := claims.Encode(issuerKeyPair)
 	if err != nil {
@@ -418,7 +418,7 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 	if err != nil {
 		log.Fatalf("Failed to subscribe: %v", err)
 	}
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
 	// Publish a test message
 	testMsg := []byte("Hello from KMS-signed NATS client!")
@@ -464,7 +464,7 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 	if err != nil {
 		log.Fatalf("Failed to subscribe to inbox: %v", err)
 	}
-	defer claimsSub.Unsubscribe()
+	defer func() { _ = claimsSub.Unsubscribe() }()
 
 	// Request all claims
 	if err := nc.PublishRequest("$SYS.REQ.CLAIMS.PACK", inbox, nil); err != nil {
@@ -509,8 +509,8 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 			log.Printf("    Name: %s", claims.Name)
 			log.Printf("    Subject: %s", claims.Subject)
 			log.Printf("    Issued At: %s", time.Unix(claims.IssuedAt, 0).Format(time.RFC3339))
-			if len(claims.Account.SigningKeys) > 0 {
-				log.Printf("    Signing Keys: %v", claims.Account.SigningKeys.Keys())
+			if len(claims.SigningKeys) > 0 {
+				log.Printf("    Signing Keys: %v", claims.SigningKeys.Keys())
 			}
 
 			// Check if this is the AUTH account (match by name)
@@ -609,16 +609,16 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 	log.Println("Step 10: Configuring AUTH account...")
 
 	// Add signing key
-	if authClaims.Account.SigningKeys == nil {
-		authClaims.Account.SigningKeys = make(jwt.SigningKeys)
+	if authClaims.SigningKeys == nil {
+		authClaims.SigningKeys = make(jwt.SigningKeys)
 	}
-	authClaims.Account.SigningKeys.Add(signingPubKey)
+	authClaims.SigningKeys.Add(signingPubKey)
 	log.Printf("  Added signing key: %s", signingPubKey)
 
 	// Configure external authorization (auth callout)
 	// - AuthUsers: users that bypass the callout (the auth service itself)
 	// - AllowedAccounts: accounts the auth service can issue users for ("*" = any)
-	authClaims.Account.Authorization = jwt.ExternalAuthorization{
+	authClaims.Authorization = jwt.ExternalAuthorization{
 		AuthUsers:       []string{authUserPubKey},
 		AllowedAccounts: []string{"*"},
 	}
@@ -655,14 +655,14 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 
 	// Step 12b: Add signing key and enable JetStream on APP account
 	log.Println("Step 13: Configuring APP account (signing key + JetStream)...")
-	if appClaims.Account.SigningKeys == nil {
-		appClaims.Account.SigningKeys = make(jwt.SigningKeys)
+	if appClaims.SigningKeys == nil {
+		appClaims.SigningKeys = make(jwt.SigningKeys)
 	}
-	appClaims.Account.SigningKeys.Add(signingPubKey)
+	appClaims.SigningKeys.Add(signingPubKey)
 	log.Printf("  Added signing key: %s", signingPubKey)
 
 	// Enable JetStream on APP account with unlimited resources
-	appClaims.Account.Limits.JetStreamLimits = jwt.JetStreamLimits{
+	appClaims.Limits.JetStreamLimits = jwt.JetStreamLimits{
 		MemoryStorage:        -1, // Unlimited
 		DiskStorage:          -1, // Unlimited
 		Streams:              -1, // Unlimited
@@ -766,7 +766,7 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 	if err != nil {
 		log.Fatalf("Failed to subscribe as auth user: %v", err)
 	}
-	defer authSub.Unsubscribe()
+	defer func() { _ = authSub.Unsubscribe() }()
 	log.Printf("  Subscribed to: %s", testSubject)
 
 	// Publish
@@ -810,7 +810,7 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 	if err != nil {
 		log.Fatalf("Failed to subscribe to auth callout: %v", err)
 	}
-	defer authCalloutSub.Unsubscribe()
+	defer func() { _ = authCalloutSub.Unsubscribe() }()
 
 	log.Printf("  Subscribed to: %s", authCalloutSubject)
 	log.Println()
