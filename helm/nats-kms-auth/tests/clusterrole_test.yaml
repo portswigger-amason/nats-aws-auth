@@ -1,0 +1,37 @@
+suite: test clusterrole
+templates:
+  - clusterrole.yaml
+tests:
+  - it: should create a ClusterRole when rbac.create is true
+    set:
+      rbac:
+        create: true
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nats-kms-auth
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: ^nats-kms-auth-
+
+  - it: should have correct ServiceAccount permissions
+    set:
+      rbac:
+        create: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["serviceaccounts"]
+            verbs: ["get", "list", "watch"]
+
+  - it: should not create ClusterRole when rbac.create is false
+    set:
+      rbac:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0

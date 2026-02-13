@@ -1,0 +1,55 @@
+suite: test clusterrolebinding
+templates:
+  - clusterrolebinding.yaml
+tests:
+  - it: should create a ClusterRoleBinding when rbac.create is true
+    set:
+      rbac:
+        create: true
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nats-kms-auth
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: ^nats-kms-auth-
+
+  - it: should reference the correct ClusterRole
+    set:
+      rbac:
+        create: true
+    asserts:
+      - equal:
+          path: roleRef.apiGroup
+          value: rbac.authorization.k8s.io
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-nats-kms-auth
+
+  - it: should bind to the correct ServiceAccount
+    set:
+      rbac:
+        create: true
+      serviceAccount:
+        create: true
+        name: nats-kms-auth
+    asserts:
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: nats-kms-auth
+            namespace: NAMESPACE
+
+  - it: should not create ClusterRoleBinding when rbac.create is false
+    set:
+      rbac:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0

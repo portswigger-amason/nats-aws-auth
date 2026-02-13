@@ -1,0 +1,222 @@
+suite: test deployment
+templates:
+  - deployment.yaml
+tests:
+  - it: should create a Deployment with correct metadata
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nats-kms-auth
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: ^nats-kms-auth-
+
+  - it: should use correct replica count
+    set:
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should use correct image with default tag
+    set:
+      image:
+        repository: ghcr.io/test/repo
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/test/repo:0.1.0
+
+  - it: should use correct image with custom tag
+    set:
+      image:
+        repository: ghcr.io/test/repo
+        tag: v1.2.3
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/test/repo:v1.2.3
+
+  - it: should set security contexts correctly
+    asserts:
+      # Pod security context
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 65532
+      # Container security context
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+
+  - it: should configure probes correctly
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.initialDelaySeconds
+          value: 5
+
+  - it: should set required environment variables
+    set:
+      nats:
+        url: "nats://custom:4222"
+      kms:
+        aliasPrefix: "test-prefix"
+      auth:
+        backend: "allow-all"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NATS_URL
+            value: "nats://custom:4222"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ALIAS_PREFIX
+            value: "test-prefix"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_BACKEND
+            value: "allow-all"
+
+  - it: should set account name environment variables
+    set:
+      accounts:
+        operator: "Test-Operator"
+        sys: "TEST-SYS"
+        auth: "TEST-AUTH"
+        app: "TEST-APP"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OPERATOR_NAME
+            value: "Test-Operator"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SYS_ACCOUNT_NAME
+            value: "TEST-SYS"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_ACCOUNT_NAME
+            value: "TEST-AUTH"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_ACCOUNT_NAME
+            value: "TEST-APP"
+
+  - it: should set JWT environment variables
+    set:
+      jwt:
+        issuer: "https://custom-issuer"
+        audience: "custom-audience"
+        jwksUrl: "https://custom-jwks"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_ISSUER
+            value: "https://custom-issuer"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_AUDIENCE
+            value: "custom-audience"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWKS_URL
+            value: "https://custom-jwks"
+
+  - it: should set log level correctly
+    set:
+      logLevel: debug
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_LEVEL
+            value: "debug"
+
+  - it: should set AWS_REGION when kms.region is provided
+    set:
+      kms:
+        region: "us-east-1"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AWS_REGION
+            value: "us-east-1"
+
+  - it: should not set AWS_REGION when kms.region is not provided
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AWS_REGION
+
+  - it: should set resource limits and requests
+    set:
+      resources:
+        limits:
+          cpu: "1"
+          memory: 512Mi
+        requests:
+          cpu: 200m
+          memory: 256Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: "1"
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 512Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 200m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 256Mi
+
+  - it: should use correct service account name
+    set:
+      serviceAccount:
+        name: "custom-sa"
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: custom-sa

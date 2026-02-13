@@ -1,0 +1,67 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/portswigger/nats-kms-auth
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to appVersion
+
+serviceAccount:
+  create: true
+  name: nats-kms-auth
+  annotations: {}
+  # eks.amazonaws.com/role-arn: from SSM via helmfile
+
+rbac:
+  create: true  # ClusterRole for K8s SA read access
+
+# AWS KMS configuration
+kms:
+  aliasPrefix: "nats"
+  # region: ""  # uses SDK default
+
+# NATS connection
+nats:
+  url: "nats://nats.messaging:4222"
+
+# Account names
+accounts:
+  operator: "KMS-Operator"
+  sys: "SYS"
+  auth: "AUTH"
+  app: "APP"
+
+# Auth backend
+auth:
+  backend: "k8s-oidc"  # or "allow-all"
+
+# K8s OIDC config (when auth.backend = k8s-oidc)
+jwt:
+  issuer: ""  # REQUIRED: EKS OIDC issuer URL
+  audience: "nats"
+  jwksUrl: "https://kubernetes.default.svc/openid/v1/jwks"
+
+# HTTP server
+port: 8080
+
+# Logging
+logLevel: info
+
+# Resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# Security
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true

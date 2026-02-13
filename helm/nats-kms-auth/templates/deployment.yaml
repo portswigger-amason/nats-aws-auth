@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nats-kms-auth.fullname" . }}
+  labels: {{- include "nats-kms-auth.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "nats-kms-auth.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nats-kms-auth.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: nats-kms-auth
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.port }}
+              name: http
+          env:
+            - name: NATS_URL
+              value: {{ .Values.nats.url | quote }}
+            - name: ALIAS_PREFIX
+              value: {{ .Values.kms.aliasPrefix | quote }}
+            - name: OPERATOR_NAME
+              value: {{ .Values.accounts.operator | quote }}
+            - name: SYS_ACCOUNT_NAME
+              value: {{ .Values.accounts.sys | quote }}
+            - name: AUTH_ACCOUNT_NAME
+              value: {{ .Values.accounts.auth | quote }}
+            - name: APP_ACCOUNT_NAME
+              value: {{ .Values.accounts.app | quote }}
+            - name: AUTH_BACKEND
+              value: {{ .Values.auth.backend | quote }}
+            - name: JWT_ISSUER
+              value: {{ .Values.jwt.issuer | quote }}
+            - name: JWT_AUDIENCE
+              value: {{ .Values.jwt.audience | quote }}
+            - name: JWKS_URL
+              value: {{ .Values.jwt.jwksUrl | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- if .Values.kms.region }}
+            - name: AWS_REGION
+              value: {{ .Values.kms.region | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+          resources: {{- toYaml .Values.resources | nindent 12 }}

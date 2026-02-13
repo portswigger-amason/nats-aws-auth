@@ -1,33 +1,617 @@
 name: Release
+
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+env:
+  GO_VERSION: '1.25.0'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  HELM_VERSION: 'v3.18.0'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+  security-events: write
+
 jobs:
-  build:
+  release:
+    name: Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout code
+        uses: actions/checkout@v6
         with:
-          go-version-file: go.mod
-      - run: make test
-      - run: make build-all
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Helm
+        uses: mamezou-tech/setup-helmfile@v2.2.0
+        with:
+          helm-version: ${{ env.HELM_VERSION }}
+          install-helm-plugins: no
+          install-kubectl: no
+          additional-helm-plugins: https://github.com/helm-unittest/helm-unittest
+
+      # Run tests before building/releasing
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Run all tests
+        run: make test-all
+
+      - name: Generate coverage report
+        run: make coverage
+
+      # Build
+      - name: Generate CalVer tag
+        id: calver
+        run: |
+          DATE=$(date -u +"%Y.%m.%d")
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          CALVER_TAG="v${DATE}-${SHORT_SHA}"
+          echo "tag=${CALVER_TAG}" >> $GITHUB_OUTPUT
+          echo "Generated CalVer tag: ${CALVER_TAG}"
+
+      - name: Build binaries
+        run: make build-all
+        env:
+          VERSION: ${{ steps.calver.outputs.tag }}
+
+      # Docker Build (local)
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          registry: ghcr.io
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.calver.outputs.tag }}
+          labels: |
+            org.opencontainers.image.description=NATS auth service with AWS KMS-backed key management
+            org.opencontainers.image.title=nats-kms-auth
+            org.opencontainers.image.vendor=PortSwigger
+
+      - name: Build image (local for security scan)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Security Scan (before push)
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy vulnerability scanner (fail on critical)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      # Docker Push (only after security scan passes)
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.calver.outputs.tag }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Attest image
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      # Helm Chart Release
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
+
+      - name: Generate ephemeral GPG key
+        id: gpg
+        run: |
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Generate GPG key for this release only
+          cat >gpg-batch <<EOF
+          %no-protection
+          Key-Type: RSA
+          Key-Length: 4096
+          Name-Real: NATS KMS Auth Release ${CHART_VERSION}
+          Name-Email: noreply@github.com
+          Expire-Date: 0
+          %commit
+          EOF
+
+          gpg --batch --generate-key gpg-batch
+
+          # Get the key ID
+          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | cut -d'/' -f2 | head -n1)
+          echo "key_id=${GPG_KEY_ID}" >> $GITHUB_OUTPUT
+
+          # Create legacy GPG keyring format for Helm compatibility
+          gpg --export > ~/.gnupg/pubring.gpg
+          gpg --export-secret-keys > ~/.gnupg/secring.gpg
+          chmod 600 ~/.gnupg/secring.gpg
+
+          # Export public key with simplified versioned filename
+          gpg --armor --export ${GPG_KEY_ID} > helm-signing-key.${CHART_VERSION}.pub
+
+          echo "Generated GPG key: ${GPG_KEY_ID}"
+          echo "Public key: helm-signing-key.${CHART_VERSION}.pub"
+
+      - name: Update Helm chart version
+        run: |
+          # Remove 'v' prefix from CalVer tag for Helm chart version
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Update Chart.yaml with the CalVer version
+          sed -i "s/^version:.*/version: ${CHART_VERSION}/" helm/nats-kms-auth/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.calver.outputs.tag }}\"/" helm/nats-kms-auth/Chart.yaml
+
+          echo "Updated Chart.yaml:"
+          cat helm/nats-kms-auth/Chart.yaml
+
+      - name: Package and sign Helm chart
+        run: |
+          # Package and sign with GPG (creates .prov file)
+          helm package helm/nats-kms-auth -d . \
+            --sign \
+            --key "NATS KMS Auth Release" \
+            --keyring ~/.gnupg/secring.gpg
+
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Verify .prov file was created
+          ls -lah nats-kms-auth-${CHART_VERSION}.tgz*
+          echo "Created Helm provenance file (.prov)"
+
+      - name: Sign Helm chart with Cosign
+        run: |
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Sign the chart package (keyless signing using GitHub OIDC)
+          cosign sign-blob \
+            --yes \
+            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \
+            nats-kms-auth-${CHART_VERSION}.tgz
+
+          ls -lah nats-kms-auth-${CHART_VERSION}.tgz*
+
+          echo "Chart signed with keyless Cosign signing"
+          echo "Signature bundle: nats-kms-auth-${CHART_VERSION}.tgz.bundle"
+
+      - name: Push Helm chart to GHCR
+        id: push_chart
+        run: |
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Login to GHCR for Helm
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
+
+          # Push chart as OCI artifact
+          helm push nats-kms-auth-${CHART_VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+
+          # Get the digest of the pushed OCI artifact
+          CHART_DIGEST=$(crane digest ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION})
+          echo "digest=${CHART_DIGEST}" >> $GITHUB_OUTPUT
+          echo "Pushed chart digest: ${CHART_DIGEST}"
+
+      - name: Attest OCI Helm chart
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth
+          subject-digest: ${{ steps.push_chart.outputs.digest }}
+          push-to-registry: true
+
+      - name: Sign OCI Helm chart
+        run: |
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Sign the OCI artifact in the registry (keyless signing)
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+
+          echo "OCI chart signed: ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}"
+
+      - name: Attest Helm chart provenance
+        run: |
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Generate SLSA provenance predicate
+          cat > predicate.json << EOF
+          {
+            "buildType": "https://github.com/Attestations/GitHubActionsWorkflow@v1",
+            "builder": {
+              "id": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            },
+            "invocation": {
+              "configSource": {
+                "uri": "git+https://github.com/${{ github.repository }}",
+                "digest": {
+                  "sha1": "${{ github.sha }}"
+                },
+                "entryPoint": ".github/workflows/release.yaml"
+              }
+            },
+            "metadata": {
+              "buildStartedOn": "${{ github.event.repository.updated_at }}",
+              "buildFinishedOn": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "completeness": {
+                "parameters": true,
+                "environment": false,
+                "materials": false
+              },
+              "reproducible": false
+            }
+          }
+          EOF
+
+          # Attach SLSA provenance to the OCI chart
+          cosign attest --yes \
+            --predicate predicate.json \
+            --type slsaprovenance \
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+
+          echo "SLSA provenance attached to OCI chart"
+
+      # Release
+      - name: Generate release notes
+        id: notes
+        run: |
+          CHART_VERSION="${{ steps.calver.outputs.tag }}"
+          CHART_VERSION="${CHART_VERSION#v}"
+
+          # Generate changelog separately to avoid heredoc issues
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" $(git describe --tags --abbrev=0 2>/dev/null || echo "")..HEAD || echo "- Initial release")
+
+          cat > release-notes.md << EOF
+          ## Container Image
+
+          \`\`\`bash
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.calver.outputs.tag }}
+          \`\`\`
+
+          ## Helm Chart
+
+          \`\`\`bash
+          helm install nats-kms-auth oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth --version ${CHART_VERSION}
+          \`\`\`
+
+          ## Verification
+
+          This release includes:
+          - ✅ Build attestations
+          - ✅ SBOM (Software Bill of Materials)
+          - ✅ Vulnerability scanning
+          - ✅ Multi-architecture support (amd64, arm64)
+          - ✅ Helm chart as signed OCI artifact
+          - ✅ GPG-signed Helm provenance (.prov)
+          - ✅ SLSA provenance attestations
+          - ✅ Keyless Cosign signatures (Sigstore)
+
+          ### Verify Helm Chart
+
+          **Option 1: Verify OCI chart in registry (recommended)**
+          \`\`\`bash
+          # Verify signature
+          cosign verify \\
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+
+          # Verify SLSA provenance
+          cosign verify-attestation \\
+            --type slsaprovenance \\
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+          \`\`\`
+
+          **Option 2: Native Helm verification (GPG)**
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz.prov
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/helm-signing-key.${CHART_VERSION}.pub
+
+          gpg --import helm-signing-key.${CHART_VERSION}.pub
+          helm verify nats-kms-auth-${CHART_VERSION}.tgz
+          \`\`\`
+
+          **Option 3: Verify with Cosign**
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz.bundle
+
+          cosign verify-blob \\
+            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \\
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
+            nats-kms-auth-${CHART_VERSION}.tgz
+          \`\`\`
+
+          ## Changes
+
+          ${CHANGELOG}
+          EOF
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.calver.outputs.tag }}
+          name: Release ${{ steps.calver.outputs.tag }}
+          body_path: release-notes.md
+          files: |
+            out/*
+            sbom.spdx.json
+            nats-kms-auth-*.tgz
+            nats-kms-auth-*.tgz.prov
+            nats-kms-auth-*.tgz.bundle
+            helm-signing-key.*.pub
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      calver_tag: ${{ steps.calver.outputs.tag }}
+
+  verify-release:
+    name: Verify Release Artifacts
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Setup Helm
+        uses: mamezou-tech/setup-helmfile@v2.1.0
+        with:
+          install-helm-plugins: no
+          install-kubectl: no
+
+      - name: Set version variables
+        id: version
+        run: |
+          CALVER_TAG="${{ needs.release.outputs.calver_tag }}"
+          CHART_VERSION="${CALVER_TAG#v}"
+          echo "calver_tag=${CALVER_TAG}" >> $GITHUB_OUTPUT
+          echo "chart_version=${CHART_VERSION}" >> $GITHUB_OUTPUT
+          echo "Verifying release: ${CALVER_TAG} (chart: ${CHART_VERSION})"
+
+      - name: Download release artifacts
+        run: |
+          CHART_VERSION="${{ steps.version.outputs.chart_version }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.calver_tag }}"
+
+          echo "Downloading artifacts from ${RELEASE_URL}"
+          wget "${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz"
+          wget "${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.prov"
+          wget "${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.bundle"
+          wget "${RELEASE_URL}/helm-signing-key.${CHART_VERSION}.pub"
+
+          echo "Downloaded artifacts:"
+          ls -lah nats-kms-auth-${CHART_VERSION}* helm-signing-key.${CHART_VERSION}.pub
+
+      - name: Verify GPG signature (Method 1)
+        id: verify_gpg
+        run: |
+          CHART_VERSION="${{ steps.version.outputs.chart_version }}"
+
+          echo "Importing GPG public key..."
+          gpg --import helm-signing-key.${CHART_VERSION}.pub
+
+          # Create legacy keyring format for Helm compatibility
+          gpg --export > ~/.gnupg/pubring.gpg
+
+          echo "Verifying Helm chart with GPG signature..."
+          helm verify nats-kms-auth-${CHART_VERSION}.tgz
+
+          echo "status=✅ Passed" >> $GITHUB_OUTPUT
+          echo "✅ GPG signature verification successful"
+
+      - name: Verify Cosign blob signature (Method 2)
+        id: verify_cosign_blob
+        run: |
+          CHART_VERSION="${{ steps.version.outputs.chart_version }}"
+
+          echo "Verifying chart tarball with Cosign..."
+          cosign verify-blob \
+            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            nats-kms-auth-${CHART_VERSION}.tgz
+
+          echo "status=✅ Passed" >> $GITHUB_OUTPUT
+          echo "✅ Cosign blob signature verification successful"
+
+      - name: Verify OCI chart signature (Method 3)
+        id: verify_oci_signature
+        run: |
+          CHART_VERSION="${{ steps.version.outputs.chart_version }}"
+
+          echo "Verifying OCI chart signature..."
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+
+          echo "status=✅ Passed" >> $GITHUB_OUTPUT
+          echo "✅ OCI chart signature verification successful"
+
+      - name: Verify SLSA provenance attestation (Method 4)
+        id: verify_slsa_provenance
+        run: |
+          CHART_VERSION="${{ steps.version.outputs.chart_version }}"
+
+          echo "Verifying SLSA provenance attestation..."
+          cosign verify-attestation \
+            --type slsaprovenance \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+
+          echo "status=✅ Passed" >> $GITHUB_OUTPUT
+          echo "✅ SLSA provenance verification successful"
+
+      - name: Generate Job Summary
+        if: always()
+        run: |
+          CHART_VERSION="${{ steps.version.outputs.chart_version }}"
+          CALVER_TAG="${{ steps.version.outputs.calver_tag }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${CALVER_TAG}"
+
+          # Determine overall status
+          if [[ "${{ job.status }}" == "success" ]]; then
+            OVERALL_STATUS="✅ All Verifications Passed"
+            OVERALL_EMOJI="🎉"
+          else
+            OVERALL_STATUS="❌ Verification Failed"
+            OVERALL_EMOJI="⚠️"
+          fi
+
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # ${OVERALL_EMOJI} Release Verification Report
+
+          **Release:** [${CALVER_TAG}](${RELEASE_URL})
+          **Chart Version:** \`${CHART_VERSION}\`
+          **Status:** ${OVERALL_STATUS}
+
+          ## Verification Results
+
+          | Method | Description | Status |
+          |--------|-------------|--------|
+          | **Method 1** | GPG Signature (Helm Native) | ${{ steps.verify_gpg.outputs.status || '❌ Failed' }} |
+          | **Method 2** | Cosign Blob Signature | ${{ steps.verify_cosign_blob.outputs.status || '❌ Failed' }} |
+          | **Method 3** | OCI Chart Signature | ${{ steps.verify_oci_signature.outputs.status || '❌ Failed' }} |
+          | **Method 4** | SLSA Provenance Attestation | ${{ steps.verify_slsa_provenance.outputs.status || '❌ Failed' }} |
+
+          ## Release Artifacts
+
+          - 📦 [Helm Chart](${RELEASE_URL})
+          - 🔐 [GPG Public Key](${RELEASE_URL})
+          - 📝 [Provenance File (.prov)](${RELEASE_URL})
+          - 🔏 [Cosign Bundle](${RELEASE_URL})
+
+          ## OCI Registry
+
+          \`\`\`bash
+          helm install nats-kms-auth oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth --version ${CHART_VERSION}
+          \`\`\`
+
+          ## Manual Verification
+
+          <details>
+          <summary>Click to expand verification commands</summary>
+
+          ### Method 1: GPG Signature
+          \`\`\`bash
+          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz
+          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.prov
+          wget ${RELEASE_URL}/helm-signing-key.${CHART_VERSION}.pub
+          gpg --import helm-signing-key.${CHART_VERSION}.pub
+          helm verify nats-kms-auth-${CHART_VERSION}.tgz
+          \`\`\`
+
+          ### Method 2: Cosign Blob
+          \`\`\`bash
+          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz
+          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.bundle
+          cosign verify-blob \\
+            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \\
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
+            nats-kms-auth-${CHART_VERSION}.tgz
+          \`\`\`
+
+          ### Method 3: OCI Signature
+          \`\`\`bash
+          cosign verify \\
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+          \`\`\`
+
+          ### Method 4: SLSA Provenance
+          \`\`\`bash
+          cosign verify-attestation \\
+            --type slsaprovenance \\
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+          \`\`\`
+
+          </details>
+
+          ---
+          *Generated by [Release Verification Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
+          EOF
