@@ -1,6 +1,6 @@
 module github.com/portswigger/nats-aws-auth
 
-go 1.25.0
+go 1.25.7
 
 require (
 	github.com/MicahParks/keyfunc/v2 v2.1.0
