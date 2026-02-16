@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	jwtpkg "github.com/portswigger/nats-kms-auth/internal/jwt"
+	jwtpkg "github.com/portswigger/nats-aws-auth/internal/jwt"
 )
 
 // mockJWTValidator implements JWTValidator for testing

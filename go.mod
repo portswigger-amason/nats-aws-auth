@@ -1,4 +1,4 @@
-module github.com/portswigger/nats-kms-auth
+module github.com/portswigger/nats-aws-auth
 
 go 1.25.0
 

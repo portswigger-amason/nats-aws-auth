@@ -1,13 +1,13 @@
 replicaCount: 2
 
 image:
-  repository: ghcr.io/portswigger/nats-kms-auth
+  repository: ghcr.io/portswigger/nats-aws-auth
   pullPolicy: IfNotPresent
   tag: ""  # defaults to appVersion
 
 serviceAccount:
   create: true
-  name: nats-kms-auth
+  name: nats-aws-auth
   annotations: {}
   # eks.amazonaws.com/role-arn: from SSM via helmfile
 

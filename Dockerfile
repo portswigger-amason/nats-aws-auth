@@ -5,7 +5,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 ARG TARGETARCH
 
 # Copy the pre-built binary for the target architecture from out/ directory
-COPY out/nats-kms-auth-linux-${TARGETARCH} /nats-kms-auth
+COPY out/nats-aws-auth-linux-${TARGETARCH} /nats-aws-auth
 
 # Use nonroot user (UID 65532)
 USER nonroot:nonroot
@@ -14,4 +14,4 @@ USER nonroot:nonroot
 EXPOSE 8080
 
 # Run the application
-ENTRYPOINT ["/nats-kms-auth"]
+ENTRYPOINT ["/nats-aws-auth"]

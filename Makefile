@@ -1,5 +1,5 @@
 # Variables
-BINARY_NAME := nats-kms-auth
+BINARY_NAME := nats-aws-auth
 OUT_DIR := out
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -25,7 +25,7 @@ test-helm: ## Run Helm unit tests
 	@echo "Running Helm unit tests..."
 	@command -v helm >/dev/null 2>&1 || { echo "Error: helm is not installed"; exit 1; }
 	@helm plugin list | grep -q unittest || { echo "Error: helm-unittest plugin not installed. Run: helm plugin install https://github.com/helm-unittest/helm-unittest"; exit 1; }
-	helm unittest --strict helm/nats-kms-auth
+	helm unittest --strict helm/nats-aws-auth
 
 # Run all tests (unit + helm)
 test-all: test-unit test-helm ## Run all tests

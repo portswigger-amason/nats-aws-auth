@@ -11,10 +11,10 @@ tests:
           of: ClusterRoleBinding
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-nats-kms-auth
+          value: RELEASE-NAME-nats-aws-auth
       - matchRegex:
           path: metadata.labels["helm.sh/chart"]
-          pattern: ^nats-kms-auth-
+          pattern: ^nats-aws-auth-
 
   - it: should reference the correct ClusterRole
     set:
@@ -29,7 +29,7 @@ tests:
           value: ClusterRole
       - equal:
           path: roleRef.name
-          value: RELEASE-NAME-nats-kms-auth
+          value: RELEASE-NAME-nats-aws-auth
 
   - it: should bind to the correct ServiceAccount
     set:
@@ -37,13 +37,13 @@ tests:
         create: true
       serviceAccount:
         create: true
-        name: nats-kms-auth
+        name: nats-aws-auth
     asserts:
       - contains:
           path: subjects
           content:
             kind: ServiceAccount
-            name: nats-kms-auth
+            name: nats-aws-auth
             namespace: NAMESPACE
 
   - it: should not create ClusterRoleBinding when rbac.create is false

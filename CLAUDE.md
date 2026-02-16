@@ -1,4 +1,4 @@
-# nats-kms-auth
+# nats-aws-auth
 
 ## Project Overview
 
@@ -9,10 +9,10 @@ Go application implementing NATS authentication with AWS KMS-backed key manageme
 ## Build & Run
 
 ```bash
-go build -o nats-kms-auth ./cmd/server/
-./nats-kms-auth --generate          # Generate config (requires AWS KMS access)
+go build -o nats-aws-auth ./cmd/server/
+./nats-aws-auth --generate          # Generate config (requires AWS KMS access)
 nats-server --config nats-server.conf  # Start server
-./nats-kms-auth                     # Run auth service
+./nats-aws-auth                     # Run auth service
 ```
 
 ## Project Structure

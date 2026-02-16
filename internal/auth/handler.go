@@ -2,7 +2,7 @@
 package auth
 
 import (
-	jwtpkg "github.com/portswigger/nats-kms-auth/internal/jwt"
+	jwtpkg "github.com/portswigger/nats-aws-auth/internal/jwt"
 )
 
 // JWTValidator defines the interface for JWT validation.

@@ -1,4 +1,4 @@
-# nats-kms-auth
+# nats-aws-auth
 
 A NATS authentication service that uses AWS KMS for cryptographic key management. Operator and system account private keys never leave KMS — only public keys are stored locally.
 
@@ -41,16 +41,16 @@ NATS Server ──► Auth Callout ($SYS.REQ.USER.AUTH)
 
 ```bash
 # Build
-go build -o nats-kms-auth ./cmd/server/
+go build -o nats-aws-auth ./cmd/server/
 
 # Generate server config (creates/reuses KMS keys)
-./nats-kms-auth --generate
+./nats-aws-auth --generate
 
 # Start the NATS server
 nats-server --config nats-server.conf
 
 # In another terminal, start the auth service
-./nats-kms-auth
+./nats-aws-auth
 
 # In another terminal, test publishing through auth callout
 nats pub test.hello "Hello World" --creds sentinel.creds
@@ -118,7 +118,7 @@ On first run with `--generate`, keys are created in KMS. On subsequent runs, exi
 ## Project structure
 
 ```
-nats-kms-auth/
+nats-aws-auth/
 ├── cmd/server/
 │   ├── main.go        # Entry point, config generation, auth callout handler
 │   └── keys.go        # AWS KMS integration, key types, nkey encoding

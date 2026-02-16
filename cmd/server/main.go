@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 nats-kms-auth contributors
+// Copyright 2026 nats-aws-auth contributors
 
 package main
 
@@ -15,9 +15,9 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
-	"github.com/portswigger/nats-kms-auth/internal/auth"
-	jwtvalidator "github.com/portswigger/nats-kms-auth/internal/jwt"
-	"github.com/portswigger/nats-kms-auth/internal/k8s"
+	"github.com/portswigger/nats-aws-auth/internal/auth"
+	jwtvalidator "github.com/portswigger/nats-aws-auth/internal/jwt"
+	"github.com/portswigger/nats-aws-auth/internal/k8s"
 	flag "github.com/spf13/pflag"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -67,7 +67,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
 
 		fmt.Fprintf(os.Stderr, "This is a service that implements the callout authentication mechanism for NATS.\n")
-		fmt.Fprintf(os.Stderr, "Please see the README for more information: https://github.com/portswigger/nats-kms-auth\n\n")
+		fmt.Fprintf(os.Stderr, "Please see the README for more information: https://github.com/portswigger/nats-aws-auth\n\n")
 		flag.PrintDefaults()
 	}
 
@@ -96,7 +96,7 @@ func runGenerate(ctx context.Context, operatorName, sysAccountName, authAccountN
 
 	client := kms.NewFromConfig(cfg)
 
-	log.Println("Generating NATS KMS configuration...")
+	log.Println("Generating NATS AWS configuration...")
 	log.Println()
 
 	// Step 1: Get or create Operator key pair in KMS

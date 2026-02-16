@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "nats-kms-auth.fullname" . }}
-  labels: {{- include "nats-kms-auth.labels" . | nindent 4 }}
+  name: {{ include "nats-aws-auth.fullname" . }}
+  labels: {{- include "nats-aws-auth.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
-    matchLabels: {{- include "nats-kms-auth.selectorLabels" . | nindent 6 }}
+    matchLabels: {{- include "nats-aws-auth.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      labels: {{- include "nats-kms-auth.selectorLabels" . | nindent 8 }}
+      labels: {{- include "nats-aws-auth.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: nats-kms-auth
+        - name: nats-aws-auth
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}

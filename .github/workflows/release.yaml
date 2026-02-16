@@ -88,7 +88,7 @@ jobs:
             type=raw,value=${{ steps.calver.outputs.tag }}
           labels: |
             org.opencontainers.image.description=NATS auth service with AWS KMS-backed key management
-            org.opencontainers.image.title=nats-kms-auth
+            org.opencontainers.image.title=nats-aws-auth
             org.opencontainers.image.vendor=PortSwigger
 
       - name: Build image (local for security scan)
@@ -178,7 +178,7 @@ jobs:
           %no-protection
           Key-Type: RSA
           Key-Length: 4096
-          Name-Real: NATS KMS Auth Release ${CHART_VERSION}
+          Name-Real: NATS AWS Auth Release ${CHART_VERSION}
           Name-Email: noreply@github.com
           Expire-Date: 0
           %commit
@@ -208,25 +208,25 @@ jobs:
           CHART_VERSION="${CHART_VERSION#v}"
 
           # Update Chart.yaml with the CalVer version
-          sed -i "s/^version:.*/version: ${CHART_VERSION}/" helm/nats-kms-auth/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.calver.outputs.tag }}\"/" helm/nats-kms-auth/Chart.yaml
+          sed -i "s/^version:.*/version: ${CHART_VERSION}/" helm/nats-aws-auth/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.calver.outputs.tag }}\"/" helm/nats-aws-auth/Chart.yaml
 
           echo "Updated Chart.yaml:"
-          cat helm/nats-kms-auth/Chart.yaml
+          cat helm/nats-aws-auth/Chart.yaml
 
       - name: Package and sign Helm chart
         run: |
           # Package and sign with GPG (creates .prov file)
-          helm package helm/nats-kms-auth -d . \
+          helm package helm/nats-aws-auth -d . \
             --sign \
-            --key "NATS KMS Auth Release" \
+            --key "NATS AWS Auth Release" \
             --keyring ~/.gnupg/secring.gpg
 
           CHART_VERSION="${{ steps.calver.outputs.tag }}"
           CHART_VERSION="${CHART_VERSION#v}"
 
           # Verify .prov file was created
-          ls -lah nats-kms-auth-${CHART_VERSION}.tgz*
+          ls -lah nats-aws-auth-${CHART_VERSION}.tgz*
           echo "Created Helm provenance file (.prov)"
 
       - name: Sign Helm chart with Cosign
@@ -237,13 +237,13 @@ jobs:
           # Sign the chart package (keyless signing using GitHub OIDC)
           cosign sign-blob \
             --yes \
-            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \
-            nats-kms-auth-${CHART_VERSION}.tgz
+            --bundle nats-aws-auth-${CHART_VERSION}.tgz.bundle \
+            nats-aws-auth-${CHART_VERSION}.tgz
 
-          ls -lah nats-kms-auth-${CHART_VERSION}.tgz*
+          ls -lah nats-aws-auth-${CHART_VERSION}.tgz*
 
           echo "Chart signed with keyless Cosign signing"
-          echo "Signature bundle: nats-kms-auth-${CHART_VERSION}.tgz.bundle"
+          echo "Signature bundle: nats-aws-auth-${CHART_VERSION}.tgz.bundle"
 
       - name: Push Helm chart to GHCR
         id: push_chart
@@ -255,17 +255,17 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
 
           # Push chart as OCI artifact
-          helm push nats-kms-auth-${CHART_VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+          helm push nats-aws-auth-${CHART_VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
 
           # Get the digest of the pushed OCI artifact
-          CHART_DIGEST=$(crane digest ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION})
+          CHART_DIGEST=$(crane digest ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION})
           echo "digest=${CHART_DIGEST}" >> $GITHUB_OUTPUT
           echo "Pushed chart digest: ${CHART_DIGEST}"
 
       - name: Attest OCI Helm chart
         uses: actions/attest-build-provenance@v3
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth
           subject-digest: ${{ steps.push_chart.outputs.digest }}
           push-to-registry: true
 
@@ -276,9 +276,9 @@ jobs:
 
           # Sign the OCI artifact in the registry (keyless signing)
           cosign sign --yes \
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
 
-          echo "OCI chart signed: ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}"
+          echo "OCI chart signed: ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}"
 
       - name: Attest Helm chart provenance
         run: |
@@ -318,7 +318,7 @@ jobs:
           cosign attest --yes \
             --predicate predicate.json \
             --type slsaprovenance \
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
 
           echo "SLSA provenance attached to OCI chart"
 
@@ -342,7 +342,7 @@ jobs:
           ## Helm Chart
 
           \`\`\`bash
-          helm install nats-kms-auth oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth --version ${CHART_VERSION}
+          helm install nats-aws-auth oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth --version ${CHART_VERSION}
           \`\`\`
 
           ## Verification
@@ -365,36 +365,36 @@ jobs:
           cosign verify \\
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
 
           # Verify SLSA provenance
           cosign verify-attestation \\
             --type slsaprovenance \\
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
           \`\`\`
 
           **Option 2: Native Helm verification (GPG)**
           \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz
-          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz.prov
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-aws-auth-${CHART_VERSION}.tgz
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-aws-auth-${CHART_VERSION}.tgz.prov
           wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/helm-signing-key.${CHART_VERSION}.pub
 
           gpg --import helm-signing-key.${CHART_VERSION}.pub
-          helm verify nats-kms-auth-${CHART_VERSION}.tgz
+          helm verify nats-aws-auth-${CHART_VERSION}.tgz
           \`\`\`
 
           **Option 3: Verify with Cosign**
           \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz
-          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-kms-auth-${CHART_VERSION}.tgz.bundle
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-aws-auth-${CHART_VERSION}.tgz
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.calver.outputs.tag }}/nats-aws-auth-${CHART_VERSION}.tgz.bundle
 
           cosign verify-blob \\
-            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \\
+            --bundle nats-aws-auth-${CHART_VERSION}.tgz.bundle \\
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
-            nats-kms-auth-${CHART_VERSION}.tgz
+            nats-aws-auth-${CHART_VERSION}.tgz
           \`\`\`
 
           ## Changes
@@ -412,9 +412,9 @@ jobs:
           files: |
             out/*
             sbom.spdx.json
-            nats-kms-auth-*.tgz
-            nats-kms-auth-*.tgz.prov
-            nats-kms-auth-*.tgz.bundle
+            nats-aws-auth-*.tgz
+            nats-aws-auth-*.tgz.prov
+            nats-aws-auth-*.tgz.bundle
             helm-signing-key.*.pub
           draft: false
           prerelease: false
@@ -454,13 +454,13 @@ jobs:
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.calver_tag }}"
 
           echo "Downloading artifacts from ${RELEASE_URL}"
-          wget "${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz"
-          wget "${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.prov"
-          wget "${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.bundle"
+          wget "${RELEASE_URL}/nats-aws-auth-${CHART_VERSION}.tgz"
+          wget "${RELEASE_URL}/nats-aws-auth-${CHART_VERSION}.tgz.prov"
+          wget "${RELEASE_URL}/nats-aws-auth-${CHART_VERSION}.tgz.bundle"
           wget "${RELEASE_URL}/helm-signing-key.${CHART_VERSION}.pub"
 
           echo "Downloaded artifacts:"
-          ls -lah nats-kms-auth-${CHART_VERSION}* helm-signing-key.${CHART_VERSION}.pub
+          ls -lah nats-aws-auth-${CHART_VERSION}* helm-signing-key.${CHART_VERSION}.pub
 
       - name: Verify GPG signature (Method 1)
         id: verify_gpg
@@ -474,7 +474,7 @@ jobs:
           gpg --export > ~/.gnupg/pubring.gpg
 
           echo "Verifying Helm chart with GPG signature..."
-          helm verify nats-kms-auth-${CHART_VERSION}.tgz
+          helm verify nats-aws-auth-${CHART_VERSION}.tgz
 
           echo "status=✅ Passed" >> $GITHUB_OUTPUT
           echo "✅ GPG signature verification successful"
@@ -486,10 +486,10 @@ jobs:
 
           echo "Verifying chart tarball with Cosign..."
           cosign verify-blob \
-            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \
+            --bundle nats-aws-auth-${CHART_VERSION}.tgz.bundle \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            nats-kms-auth-${CHART_VERSION}.tgz
+            nats-aws-auth-${CHART_VERSION}.tgz
 
           echo "status=✅ Passed" >> $GITHUB_OUTPUT
           echo "✅ Cosign blob signature verification successful"
@@ -503,7 +503,7 @@ jobs:
           cosign verify \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
 
           echo "status=✅ Passed" >> $GITHUB_OUTPUT
           echo "✅ OCI chart signature verification successful"
@@ -518,7 +518,7 @@ jobs:
             --type slsaprovenance \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
 
           echo "status=✅ Passed" >> $GITHUB_OUTPUT
           echo "✅ SLSA provenance verification successful"
@@ -565,7 +565,7 @@ jobs:
           ## OCI Registry
 
           \`\`\`bash
-          helm install nats-kms-auth oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth --version ${CHART_VERSION}
+          helm install nats-aws-auth oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth --version ${CHART_VERSION}
           \`\`\`
 
           ## Manual Verification
@@ -575,22 +575,22 @@ jobs:
 
           ### Method 1: GPG Signature
           \`\`\`bash
-          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz
-          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.prov
+          wget ${RELEASE_URL}/nats-aws-auth-${CHART_VERSION}.tgz
+          wget ${RELEASE_URL}/nats-aws-auth-${CHART_VERSION}.tgz.prov
           wget ${RELEASE_URL}/helm-signing-key.${CHART_VERSION}.pub
           gpg --import helm-signing-key.${CHART_VERSION}.pub
-          helm verify nats-kms-auth-${CHART_VERSION}.tgz
+          helm verify nats-aws-auth-${CHART_VERSION}.tgz
           \`\`\`
 
           ### Method 2: Cosign Blob
           \`\`\`bash
-          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz
-          wget ${RELEASE_URL}/nats-kms-auth-${CHART_VERSION}.tgz.bundle
+          wget ${RELEASE_URL}/nats-aws-auth-${CHART_VERSION}.tgz
+          wget ${RELEASE_URL}/nats-aws-auth-${CHART_VERSION}.tgz.bundle
           cosign verify-blob \\
-            --bundle nats-kms-auth-${CHART_VERSION}.tgz.bundle \\
+            --bundle nats-aws-auth-${CHART_VERSION}.tgz.bundle \\
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
-            nats-kms-auth-${CHART_VERSION}.tgz
+            nats-aws-auth-${CHART_VERSION}.tgz
           \`\`\`
 
           ### Method 3: OCI Signature
@@ -598,7 +598,7 @@ jobs:
           cosign verify \\
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
           \`\`\`
 
           ### Method 4: SLSA Provenance
@@ -607,7 +607,7 @@ jobs:
             --type slsaprovenance \\
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/" \\
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-kms-auth:${CHART_VERSION}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/nats-aws-auth:${CHART_VERSION}
           \`\`\`
 
           </details>

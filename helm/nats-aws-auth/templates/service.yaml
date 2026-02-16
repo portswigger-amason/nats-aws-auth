@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nats-aws-auth.fullname" . }}
+  labels: {{- include "nats-aws-auth.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector: {{- include "nats-aws-auth.selectorLabels" . | nindent 4 }}

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 nats-kms-auth contributors
+// Copyright 2026 nats-aws-auth contributors
 
 package main
 
