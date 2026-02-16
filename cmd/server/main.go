@@ -50,7 +50,9 @@ func main() {
 
 	// Initialize logger
 	logger := initLogger(*debug)
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // Ignore error on sync at program exit
+	}()
 
 	ctx := context.Background()
 
