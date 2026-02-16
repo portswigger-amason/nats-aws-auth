@@ -1,0 +1,106 @@
+suite: test generate rolebinding
+templates:
+  - generate-rolebinding.yaml
+tests:
+  - it: should not create when generate is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create a RoleBinding when generate is enabled
+    set:
+      generate:
+        enabled: true
+        hookDeletePolicy: "before-hook-creation,hook-succeeded"
+        serviceAccount:
+          name: ""
+          annotations: {}
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nats-aws-auth-generate
+
+  - it: should have hook annotations with correct weight
+    set:
+      generate:
+        enabled: true
+        hookDeletePolicy: "before-hook-creation,hook-succeeded"
+        serviceAccount:
+          name: ""
+          annotations: {}
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "-3"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: "before-hook-creation,hook-succeeded"
+
+  - it: should reference the correct Role
+    set:
+      generate:
+        enabled: true
+        hookDeletePolicy: "before-hook-creation,hook-succeeded"
+        serviceAccount:
+          name: ""
+          annotations: {}
+    asserts:
+      - equal:
+          path: roleRef.apiGroup
+          value: rbac.authorization.k8s.io
+      - equal:
+          path: roleRef.kind
+          value: Role
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-nats-aws-auth-generate
+
+  - it: should reference the correct ServiceAccount
+    set:
+      generate:
+        enabled: true
+        hookDeletePolicy: "before-hook-creation,hook-succeeded"
+        serviceAccount:
+          name: ""
+          annotations: {}
+    asserts:
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-nats-aws-auth-generate
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
+
+  - it: should use custom service account name in subject
+    set:
+      generate:
+        enabled: true
+        hookDeletePolicy: "before-hook-creation,hook-succeeded"
+        serviceAccount:
+          name: "custom-generate-sa"
+          annotations: {}
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: custom-generate-sa
+
+  - it: should include common labels
+    set:
+      generate:
+        enabled: true
+        hookDeletePolicy: "before-hook-creation,hook-succeeded"
+        serviceAccount:
+          name: ""
+          annotations: {}
+    asserts:
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: ^nats-aws-auth-

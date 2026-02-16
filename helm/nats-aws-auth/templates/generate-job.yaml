@@ -1,0 +1,74 @@
+{{- if .Values.generate.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "nats-aws-auth.generate.fullname" . }}
+  labels: {{- include "nats-aws-auth.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": {{ .Values.generate.hookDeletePolicy }}
+spec:
+  {{- with .Values.generate.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  backoffLimit: {{ .Values.generate.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.generate.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels: {{- include "nats-aws-auth.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "nats-aws-auth.generate.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      restartPolicy: OnFailure
+      initContainers:
+        - name: generate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - --generate
+            - --output
+            - /output
+            - --alias-prefix
+            - {{ .Values.kms.aliasPrefix | quote }}
+            - --operator-name
+            - {{ .Values.accounts.operator | quote }}
+            - --sys-account
+            - {{ .Values.accounts.sys | quote }}
+            - --auth-account-name
+            - {{ .Values.accounts.auth | quote }}
+            - --app-account-name
+            - {{ .Values.accounts.app | quote }}
+            {{- if .Values.kms.region }}
+            - --region
+            - {{ .Values.kms.region | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: output
+              mountPath: /output
+          resources: {{- toYaml .Values.generate.resources.generate | nindent 12 }}
+      containers:
+        - name: create-configmap
+          image: "{{ .Values.generate.kubectlImage.repository }}:{{ .Values.generate.kubectlImage.tag }}"
+          imagePullPolicy: {{ .Values.generate.kubectlImage.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              kubectl create configmap {{ .Values.generate.configMapName }} \
+                --from-file=nats-server.conf=/output/nats-server.conf \
+                --dry-run=client -o yaml | kubectl apply -f -
+          volumeMounts:
+            - name: output
+              mountPath: /output
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources: {{- toYaml .Values.generate.resources.kubectl | nindent 12 }}
+      volumes:
+        - name: output
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -47,3 +47,21 @@ Selector labels
 app.kubernetes.io/name: {{ include "nats-aws-auth.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Generate job fullname
+*/}}
+{{- define "nats-aws-auth.generate.fullname" -}}
+{{ include "nats-aws-auth.fullname" . }}-generate
+{{- end }}
+
+{{/*
+Generate job service account name
+*/}}
+{{- define "nats-aws-auth.generate.serviceAccountName" -}}
+{{- if .Values.generate.serviceAccount.name }}
+{{- .Values.generate.serviceAccount.name }}
+{{- else }}
+{{- include "nats-aws-auth.generate.fullname" . }}
+{{- end }}
+{{- end }}

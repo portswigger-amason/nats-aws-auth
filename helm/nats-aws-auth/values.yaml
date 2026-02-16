@@ -65,3 +65,33 @@ securityContext:
   capabilities:
     drop: ["ALL"]
   readOnlyRootFilesystem: true
+
+# Config generation hook job (helm pre-install/pre-upgrade)
+generate:
+  enabled: false
+  configMapName: "nats-server-config"
+  hookDeletePolicy: "before-hook-creation,hook-succeeded"
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  kubectlImage:
+    repository: bitnami/kubectl
+    tag: "1.31"
+    pullPolicy: IfNotPresent
+  resources:
+    generate:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    kubectl:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+  serviceAccount:
+    name: ""
+    annotations: {}
+    # eks.amazonaws.com/role-arn: from SSM via helmfile
