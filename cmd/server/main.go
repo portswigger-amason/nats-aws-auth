@@ -6,10 +6,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 
 	flag "github.com/spf13/pflag"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func main() {
@@ -35,8 +36,8 @@ func main() {
 	var jwtIssuer = flag.String("jwt-issuer", "", "expected JWT issuer for k8s-oidc backend")
 	var jwtAudience = flag.String("jwt-audience", "nats", "expected JWT audience for k8s-oidc backend")
 
-	log.SetFlags(0)
-	log.SetOutput(os.Stdout)
+	// Logging flags
+	var debug = flag.Bool("debug", false, "enable debug logging")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
@@ -47,12 +48,40 @@ func main() {
 
 	flag.Parse()
 
+	// Initialize logger
+	logger := initLogger(*debug)
+	defer func() {
+		_ = logger.Sync() // Ignore error on sync at program exit
+	}()
+
 	ctx := context.Background()
 
 	if *generate {
-		runGenerate(ctx, *operatorName, *sysAccountName, *authAccountName, *region, *outputDir, *aliasPrefix)
+		runGenerate(ctx, logger, *operatorName, *sysAccountName, *authAccountName, *region, *outputDir, *aliasPrefix)
 	} else {
-		authorizer := initAuthorizer(ctx, *authBackend, *jwksURL, *jwksPath, *jwtIssuer, *jwtAudience)
-		runAuthService(ctx, *authAccountName, *appAccountName, *region, *natsURL, authorizer)
+		authorizer := initAuthorizer(ctx, *authBackend, *jwksURL, *jwksPath, *jwtIssuer, *jwtAudience, logger)
+		runAuthService(ctx, *authAccountName, *appAccountName, *region, *natsURL, authorizer, logger)
 	}
+}
+
+func initLogger(debug bool) *zap.Logger {
+	config := zap.NewProductionConfig()
+	config.Encoding = "console"
+	config.EncoderConfig.TimeKey = "time"
+	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+
+	if debug {
+		config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	} else {
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	}
+
+	logger, err := config.Build()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+
+	return logger
 }
