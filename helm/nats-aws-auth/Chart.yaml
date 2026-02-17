@@ -2,5 +2,5 @@ apiVersion: v2
 name: nats-aws-auth
 description: NATS auth service with AWS KMS-backed key management
 type: application
-version: 2026.02.17-05ea087
-appVersion: "v2026.02.17-05ea087"
+version: 0.1.0
+appVersion: "0.1.0"
