@@ -4,6 +4,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/nats-io/jwt/v2"
@@ -96,5 +97,29 @@ func TestCreateNackUserClaims_CanEncode(t *testing.T) {
 	}
 	if decoded.IssuerAccount != accountPubKey {
 		t.Errorf("decoded issuer account mismatch")
+	}
+}
+
+func TestFormatCredentials(t *testing.T) {
+	result := formatCredentials("eyJhbGciOiJFZDI1NTE5In0.test", "SUAM_test_seed")
+
+	// Check structure markers
+	if !strings.Contains(result, "-----BEGIN NATS USER JWT-----") {
+		t.Error("missing JWT begin marker")
+	}
+	if !strings.Contains(result, "------END NATS USER JWT------") {
+		t.Error("missing JWT end marker")
+	}
+	if !strings.Contains(result, "-----BEGIN USER NKEY SEED-----") {
+		t.Error("missing seed begin marker")
+	}
+	if !strings.Contains(result, "------END USER NKEY SEED------") {
+		t.Error("missing seed end marker")
+	}
+	if !strings.Contains(result, "eyJhbGciOiJFZDI1NTE5In0.test") {
+		t.Error("JWT not found in output")
+	}
+	if !strings.Contains(result, "SUAM_test_seed") {
+		t.Error("seed not found in output")
 	}
 }

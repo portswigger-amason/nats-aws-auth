@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -27,4 +28,16 @@ func createNackUserClaims(userPubKey, accountPubKey string) *jwt.UserClaims {
 	}
 
 	return claims
+}
+
+// formatCredentials produces a NATS .creds file from a JWT and nkey seed.
+func formatCredentials(userJWT, seed string) string {
+	return fmt.Sprintf(`-----BEGIN NATS USER JWT-----
+%s
+------END NATS USER JWT------
+
+-----BEGIN USER NKEY SEED-----
+%s
+------END USER NKEY SEED------
+`, userJWT, seed)
 }
