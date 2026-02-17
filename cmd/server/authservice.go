@@ -495,9 +495,10 @@ func createSentinelCredentials(authClaims *jwt.AccountClaims, signingKP nkeys.Ke
 `, sentinelJWT, string(sentinelSeed))
 
 	if err := os.WriteFile("sentinel.creds", []byte(sentinelCreds), 0600); err != nil {
-		log.Fatalf("Failed to write sentinel credentials: %v", err)
+		log.Printf("  Skipping sentinel.creds file write (read-only filesystem): %v", err)
+	} else {
+		log.Println("  Sentinel credentials written to: sentinel.creds")
 	}
-	log.Println("  Sentinel credentials written to: sentinel.creds")
 	log.Println()
 }
 
