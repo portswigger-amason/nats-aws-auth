@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -622,8 +623,9 @@ func startAuthCalloutHandler(authNC *nats.Conn, accounts *accountConfig, appAcco
 	log.Println("===========================================")
 	log.Println()
 	log.Println("The service will authorize incoming connections.")
-	log.Println("Press Ctrl+C to exit...")
 	log.Println()
+
+	go startHealthServer(authNC)
 
 	select {}
 }
@@ -734,4 +736,21 @@ func createSentinelUserJWTForAuthService(userPubKey, accountPubKey string, signi
 	}
 
 	return token, nil
+}
+
+func startHealthServer(nc *nats.Conn) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if !nc.IsConnected() {
+			http.Error(w, "NATS disconnected", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	})
+
+	log.Println("Health server listening on :8080")
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Fatalf("Health server failed: %v", err)
+	}
 }
