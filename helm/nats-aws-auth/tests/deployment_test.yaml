@@ -84,7 +84,7 @@ tests:
           path: spec.template.spec.containers[0].readinessProbe.initialDelaySeconds
           value: 5
 
-  - it: should set required environment variables
+  - it: should set required CLI arguments
     set:
       nats:
         url: "nats://custom:4222"
@@ -94,22 +94,16 @@ tests:
         backend: "allow-all"
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: NATS_URL
-            value: "nats://custom:4222"
+          path: spec.template.spec.containers[0].args
+          content: "--url=nats://custom:4222"
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: ALIAS_PREFIX
-            value: "test-prefix"
+          path: spec.template.spec.containers[0].args
+          content: "--alias-prefix=test-prefix"
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AUTH_BACKEND
-            value: "allow-all"
+          path: spec.template.spec.containers[0].args
+          content: "--auth-backend=allow-all"
 
-  - it: should set account name environment variables
+  - it: should set account name CLI arguments
     set:
       accounts:
         operator: "Test-Operator"
@@ -118,27 +112,19 @@ tests:
         app: "TEST-APP"
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: OPERATOR_NAME
-            value: "Test-Operator"
+          path: spec.template.spec.containers[0].args
+          content: "--operator-name=Test-Operator"
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SYS_ACCOUNT_NAME
-            value: "TEST-SYS"
+          path: spec.template.spec.containers[0].args
+          content: "--sys-account=TEST-SYS"
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AUTH_ACCOUNT_NAME
-            value: "TEST-AUTH"
+          path: spec.template.spec.containers[0].args
+          content: "--auth-account-name=TEST-AUTH"
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: APP_ACCOUNT_NAME
-            value: "TEST-APP"
+          path: spec.template.spec.containers[0].args
+          content: "--app-account-name=TEST-APP"
 
-  - it: should set JWT environment variables
+  - it: should set JWT CLI arguments
     set:
       jwt:
         issuer: "https://custom-issuer"
@@ -146,48 +132,29 @@ tests:
         jwksUrl: "https://custom-jwks"
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: JWT_ISSUER
-            value: "https://custom-issuer"
+          path: spec.template.spec.containers[0].args
+          content: "--jwt-issuer=https://custom-issuer"
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: JWT_AUDIENCE
-            value: "custom-audience"
+          path: spec.template.spec.containers[0].args
+          content: "--jwt-audience=custom-audience"
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: JWKS_URL
-            value: "https://custom-jwks"
+          path: spec.template.spec.containers[0].args
+          content: "--jwks-url=https://custom-jwks"
 
-  - it: should set log level correctly
-    set:
-      logLevel: debug
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: LOG_LEVEL
-            value: "debug"
-
-  - it: should set AWS_REGION when kms.region is provided
+  - it: should set --region when kms.region is provided
     set:
       kms:
         region: "us-east-1"
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AWS_REGION
-            value: "us-east-1"
+          path: spec.template.spec.containers[0].args
+          content: "--region=us-east-1"
 
-  - it: should not set AWS_REGION when kms.region is not provided
+  - it: should not set --region when kms.region is not provided
     asserts:
       - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AWS_REGION
+          path: spec.template.spec.containers[0].args
+          content: "--region="
 
   - it: should set resource limits and requests
     set:

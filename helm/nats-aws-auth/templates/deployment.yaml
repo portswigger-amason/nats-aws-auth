@@ -21,32 +21,19 @@ spec:
           ports:
             - containerPort: {{ .Values.port }}
               name: http
-          env:
-            - name: NATS_URL
-              value: {{ .Values.nats.url | quote }}
-            - name: ALIAS_PREFIX
-              value: {{ .Values.kms.aliasPrefix | quote }}
-            - name: OPERATOR_NAME
-              value: {{ .Values.accounts.operator | quote }}
-            - name: SYS_ACCOUNT_NAME
-              value: {{ .Values.accounts.sys | quote }}
-            - name: AUTH_ACCOUNT_NAME
-              value: {{ .Values.accounts.auth | quote }}
-            - name: APP_ACCOUNT_NAME
-              value: {{ .Values.accounts.app | quote }}
-            - name: AUTH_BACKEND
-              value: {{ .Values.auth.backend | quote }}
-            - name: JWT_ISSUER
-              value: {{ .Values.jwt.issuer | quote }}
-            - name: JWT_AUDIENCE
-              value: {{ .Values.jwt.audience | quote }}
-            - name: JWKS_URL
-              value: {{ .Values.jwt.jwksUrl | quote }}
-            - name: LOG_LEVEL
-              value: {{ .Values.logLevel | quote }}
+          args:
+            - --url={{ .Values.nats.url }}
+            - --alias-prefix={{ .Values.kms.aliasPrefix }}
+            - --operator-name={{ .Values.accounts.operator }}
+            - --sys-account={{ .Values.accounts.sys }}
+            - --auth-account-name={{ .Values.accounts.auth }}
+            - --app-account-name={{ .Values.accounts.app }}
+            - --auth-backend={{ .Values.auth.backend }}
+            - --jwt-issuer={{ .Values.jwt.issuer }}
+            - --jwt-audience={{ .Values.jwt.audience }}
+            - --jwks-url={{ .Values.jwt.jwksUrl }}
             {{- if .Values.kms.region }}
-            - name: AWS_REGION
-              value: {{ .Values.kms.region | quote }}
+            - --region={{ .Values.kms.region }}
             {{- end }}
           livenessProbe:
             httpGet:
