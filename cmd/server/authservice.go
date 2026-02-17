@@ -746,7 +746,7 @@ func startHealthServer(nc *nats.Conn) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	})
 
 	log.Println("Health server listening on :8080")
