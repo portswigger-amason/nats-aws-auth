@@ -47,7 +47,13 @@ func runAuthService(ctx context.Context, authAccountName, appAccountName, region
 	conn := setupNATSConnection(ctx, client, natsURL)
 	defer conn.nc.Close()
 
-	accounts := fetchAndConfigureAccounts(ctx, client, conn, authAccountName, appAccountName)
+	// Look up APP account KMS key if alias provided
+	var appAccountKey *KMSKey
+	if appAccountKeyAlias != "" {
+		appAccountKey = lookupAppAccountKey(ctx, client, appAccountKeyAlias)
+	}
+
+	accounts := fetchAndConfigureAccounts(ctx, client, conn, authAccountName, appAccountName, appAccountKey)
 
 	startAuthService(conn.nc, accounts, authAccountName, appAccountName, natsURL, authorizer)
 }
@@ -108,6 +114,18 @@ func lookupSysAccountKey(ctx context.Context, client *kms.Client) *KMSKey {
 	log.Printf("  KMS Key ID: %s", sysKey.KeyID)
 	log.Println()
 	return sysKey
+}
+
+func lookupAppAccountKey(ctx context.Context, client *kms.Client, alias string) *KMSKey {
+	log.Printf("Looking up APP account key from KMS (alias: %s)...", alias)
+	appKey, err := getExistingKMSKey(ctx, client, "alias/"+alias, nkeys.PrefixByteAccount)
+	if err != nil {
+		log.Fatalf("Failed to find APP account key in KMS: %v\n\nPlease run with --generate-credentials first to create the KMS key.", err)
+	}
+	log.Printf("  APP Account Public Key: %s", appKey.PublicKey)
+	log.Printf("  KMS Key ID: %s", appKey.KeyID)
+	log.Println()
+	return appKey
 }
 
 func generateUserKeyPair() nkeys.KeyPair {
@@ -183,11 +201,11 @@ func testNATSConnection(nc *nats.Conn) {
 	log.Println()
 }
 
-func fetchAndConfigureAccounts(ctx context.Context, client *kms.Client, conn *natsConnection, authAccountName, appAccountName string) *accountConfig {
+func fetchAndConfigureAccounts(ctx context.Context, client *kms.Client, conn *natsConnection, authAccountName, appAccountName string, appAccountKey *KMSKey) *accountConfig {
 	signingKP := generateSigningKeyPair()
 	authJWT, appJWT := fetchAccountsFromNATS(conn.nc, authAccountName, appAccountName)
 
-	appClaims := ensureAppAccountExists(conn, appJWT, appAccountName)
+	appClaims := ensureAppAccountExists(conn, appJWT, appAccountName, appAccountKey)
 	authClaims := decodeAuthAccount(authJWT, authAccountName)
 
 	authUserKP := createAuthUserKeyPair()
@@ -308,32 +326,47 @@ func logAccountInfo(claims *jwt.AccountClaims) {
 	}
 }
 
-func ensureAppAccountExists(conn *natsConnection, appJWT, appAccountName string) *jwt.AccountClaims {
+func ensureAppAccountExists(conn *natsConnection, appJWT, appAccountName string, appAccountKey *KMSKey) *jwt.AccountClaims {
 	if appJWT != "" {
 		appClaims, err := jwt.DecodeAccountClaims(appJWT)
 		if err != nil {
 			log.Fatalf("Failed to decode APP account JWT: %v", err)
+		}
+		// If KMS key is configured, verify the existing account matches
+		if appAccountKey != nil && appClaims.Subject != appAccountKey.PublicKey {
+			log.Fatalf("APP account public key mismatch: NATS has %s, KMS has %s. "+
+				"This likely means the APP account was created with a different key. "+
+				"Delete the existing APP account JWT from the resolver and restart.",
+				appClaims.Subject, appAccountKey.PublicKey)
 		}
 		return appClaims
 	}
 
 	log.Println("APP account not found, creating new APP account...")
 
-	appKP, err := nkeys.CreateAccount()
-	if err != nil {
-		log.Fatalf("Failed to create APP account keypair: %v", err)
+	var appPubKey string
+	if appAccountKey != nil {
+		// Use the stable KMS-backed key
+		appPubKey = appAccountKey.PublicKey
+		log.Printf("  APP account public key (from KMS): %s", appPubKey)
+	} else {
+		// Fallback: ephemeral key (original behaviour)
+		appKP, err := nkeys.CreateAccount()
+		if err != nil {
+			log.Fatalf("Failed to create APP account keypair: %v", err)
+		}
+		appPubKey, err = appKP.PublicKey()
+		if err != nil {
+			log.Fatalf("Failed to get APP account public key: %v", err)
+		}
+		log.Printf("  APP account public key (ephemeral): %s", appPubKey)
 	}
-	appPubKey, err := appKP.PublicKey()
-	if err != nil {
-		log.Fatalf("Failed to get APP account public key: %v", err)
-	}
-	log.Printf("  APP account public key: %s", appPubKey)
 
 	appClaims := jwt.NewAccountClaims(appPubKey)
 	appClaims.Name = appAccountName
 	appClaims.IssuedAt = time.Now().Unix()
 
-	appJWT, err = appClaims.EncodeWithSigner(conn.operatorKP, conn.operatorSigner)
+	appJWT, err := appClaims.EncodeWithSigner(conn.operatorKP, conn.operatorSigner)
 	if err != nil {
 		log.Fatalf("Failed to encode APP account JWT: %v", err)
 	}
