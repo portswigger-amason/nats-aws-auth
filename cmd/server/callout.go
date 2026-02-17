@@ -29,7 +29,7 @@ func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
 	authClaims, err := decodeAuthRequest(msg.Data)
 	if err != nil {
 		log.Printf("[AUTH] ERROR: Failed to decode auth request: %v", err)
-		h.respondWithError(msg, "failed to decode authorization request")
+		h.respondWithError(msg, "", "failed to decode authorization request")
 		return
 	}
 
@@ -39,7 +39,7 @@ func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
 
 	if !authorized {
 		log.Printf("[AUTH]   Decision: DENIED")
-		h.respondWithError(msg, "authorization denied")
+		h.respondWithError(msg, authClaims.UserNkey, "authorization denied")
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
 	userJWT, err := h.createUserJWTForCallout(authClaims.UserNkey, userName, permissions, authClaims.Server.ID)
 	if err != nil {
 		log.Printf("[AUTH] ERROR: Failed to create user JWT: %v", err)
-		h.respondWithError(msg, "internal error creating user JWT")
+		h.respondWithError(msg, authClaims.UserNkey, "internal error creating user JWT")
 		return
 	}
 	log.Printf("[AUTH]   User JWT created")
@@ -58,7 +58,7 @@ func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
 	responseJWT, err := h.createAuthResponse(authClaims, userJWT)
 	if err != nil {
 		log.Printf("[AUTH] ERROR: Failed to create auth response: %v", err)
-		h.respondWithError(msg, "internal error creating response")
+		h.respondWithError(msg, authClaims.UserNkey, "internal error creating response")
 		return
 	}
 
@@ -179,9 +179,16 @@ func (h *AuthCalloutHandler) createAuthResponse(request *jwt.AuthorizationReques
 	return token, nil
 }
 
-// respondWithError sends an error response
-func (h *AuthCalloutHandler) respondWithError(msg *nats.Msg, errMsg string) {
-	response := jwt.NewAuthorizationResponseClaims("")
+// respondWithError sends an error response. userNkey may be empty when the
+// request could not be decoded; in that case we log and bail because
+// jwt.NewAuthorizationResponseClaims requires a non-empty subject.
+func (h *AuthCalloutHandler) respondWithError(msg *nats.Msg, userNkey, errMsg string) {
+	if userNkey == "" {
+		log.Printf("[AUTH] ERROR: Cannot send error response (no user nkey): %s", errMsg)
+		return
+	}
+
+	response := jwt.NewAuthorizationResponseClaims(userNkey)
 	response.Error = errMsg
 	response.IssuerAccount = h.authAccountPub
 
