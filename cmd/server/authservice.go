@@ -39,7 +39,7 @@ type accountConfig struct {
 	authUserKP nkeys.KeyPair
 }
 
-func runAuthService(ctx context.Context, authAccountName, appAccountName, region, natsURL string, authorizer auth.Authorizer) {
+func runAuthService(ctx context.Context, authAccountName, appAccountName, region, natsURL, appAccountKeyAlias string, authorizer auth.Authorizer) {
 	log.Println("NATS Client with KMS-signed credentials")
 	log.Println()
 
