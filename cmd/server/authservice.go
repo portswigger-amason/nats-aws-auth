@@ -36,6 +36,7 @@ type accountConfig struct {
 	authClaims *jwt.AccountClaims
 	appClaims  *jwt.AccountClaims
 	signingKP  nkeys.KeyPair
+	authUserKP nkeys.KeyPair
 }
 
 func runAuthService(ctx context.Context, authAccountName, appAccountName, region, natsURL string, authorizer auth.Authorizer) {
@@ -200,6 +201,7 @@ func fetchAndConfigureAccounts(ctx context.Context, client *kms.Client, conn *na
 		authClaims: authClaims,
 		appClaims:  appClaims,
 		signingKP:  signingKP,
+		authUserKP: authUserKP,
 	}
 }
 
@@ -504,27 +506,18 @@ func createSentinelCredentials(authClaims *jwt.AccountClaims, signingKP nkeys.Ke
 }
 
 func startAuthService(nc *nats.Conn, accounts *accountConfig, authAccountName, appAccountName, natsURL string, authorizer auth.Authorizer) {
-	authUserKP := createAuthUserKeyPairForService()
-	authUserJWT := createAuthUserJWTForService(accounts, authUserKP)
+	authUserJWT := createAuthUserJWTForService(accounts)
 
-	authNC := connectAsAuthUser(natsURL, authUserJWT, authUserKP)
+	authNC := connectAsAuthUser(natsURL, authUserJWT, accounts.authUserKP)
 	defer authNC.Close()
 
 	testAuthUserMessaging(authNC)
 	startAuthCalloutHandler(authNC, accounts, appAccountName, authorizer)
 }
 
-func createAuthUserKeyPairForService() nkeys.KeyPair {
+func createAuthUserJWTForService(accounts *accountConfig) string {
 	log.Println("Step 14: Creating auth user JWT signed by signing key...")
-	authUserKP, err := nkeys.CreateUser()
-	if err != nil {
-		log.Fatalf("Failed to create auth user keypair: %v", err)
-	}
-	return authUserKP
-}
-
-func createAuthUserJWTForService(accounts *accountConfig, authUserKP nkeys.KeyPair) string {
-	authUserPubKey, _ := authUserKP.PublicKey()
+	authUserPubKey, _ := accounts.authUserKP.PublicKey()
 	signingPubKey, _ := accounts.signingKP.PublicKey()
 
 	log.Printf("  Issuer Account (AUTH): %s", accounts.authClaims.Subject)
