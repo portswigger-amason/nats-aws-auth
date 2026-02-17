@@ -385,7 +385,8 @@ func updateAuthAccount(conn *natsConnection, authClaims *jwt.AccountClaims, sign
 		authClaims.SigningKeys = make(jwt.SigningKeys)
 	}
 	authClaims.SigningKeys.Add(signingPubKey)
-	log.Printf("  Added signing key: %s", signingPubKey)
+	capSigningKeys(authClaims.SigningKeys, signingPubKey)
+	log.Printf("  Added signing key: %s (total: %d)", signingPubKey, len(authClaims.SigningKeys))
 
 	authClaims.Authorization = jwt.ExternalAuthorization{
 		AuthUsers:       []string{authUserPubKey},
@@ -435,7 +436,8 @@ func updateAppAccount(conn *natsConnection, appClaims *jwt.AccountClaims, signin
 		appClaims.SigningKeys = make(jwt.SigningKeys)
 	}
 	appClaims.SigningKeys.Add(signingPubKey)
-	log.Printf("  Added signing key: %s", signingPubKey)
+	capSigningKeys(appClaims.SigningKeys, signingPubKey)
+	log.Printf("  Added signing key: %s (total: %d)", signingPubKey, len(appClaims.SigningKeys))
 
 	appClaims.Limits.JetStreamLimits = jwt.JetStreamLimits{
 		MemoryStorage:        -1,
@@ -535,20 +537,35 @@ func createAuthUserJWTForService(accounts *accountConfig) string {
 
 func connectAsAuthUser(natsURL, authUserJWT string, authUserKP nkeys.KeyPair) *nats.Conn {
 	log.Printf("Step 17: Connecting to NATS as 'auth' user in AUTH account...")
-	authNC, err := nats.Connect(natsURL, nats.UserJWT(
-		func() (string, error) {
-			return authUserJWT, nil
-		},
-		func(nonce []byte) ([]byte, error) {
-			return authUserKP.Sign(nonce)
-		},
-	))
-	if err != nil {
-		log.Fatalf("Failed to connect as auth user: %v", err)
+
+	const maxRetries = 5
+	const retryDelay = 2 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		authNC, err := nats.Connect(natsURL, nats.UserJWT(
+			func() (string, error) {
+				return authUserJWT, nil
+			},
+			func(nonce []byte) ([]byte, error) {
+				return authUserKP.Sign(nonce)
+			},
+		))
+		if err == nil {
+			log.Println("  Successfully connected as auth user!")
+			log.Println()
+			return authNC
+		}
+
+		if attempt < maxRetries {
+			log.Printf("  Attempt %d/%d failed: %v (retrying in %s)", attempt, maxRetries, err, retryDelay)
+			time.Sleep(retryDelay)
+		} else {
+			log.Fatalf("Failed to connect as auth user after %d attempts: %v", maxRetries, err)
+		}
 	}
-	log.Println("  Successfully connected as auth user!")
-	log.Println()
-	return authNC
+
+	// Unreachable, but keeps the compiler happy.
+	return nil
 }
 
 func testAuthUserMessaging(authNC *nats.Conn) {
@@ -729,6 +746,26 @@ func createSentinelUserJWTForAuthService(userPubKey, accountPubKey string, signi
 	}
 
 	return token, nil
+}
+
+// capSigningKeys trims keys to at most maxSigningKeys, keeping the key we
+// just added (currentKey). Old keys belong to previous pod restarts and are
+// safe to remove; the 5-key buffer handles rolling restarts where multiple
+// pods may briefly coexist.
+func capSigningKeys(keys jwt.SigningKeys, currentKey string) {
+	const maxSigningKeys = 5
+	if len(keys) <= maxSigningKeys {
+		return
+	}
+	for k := range keys {
+		if k == currentKey {
+			continue
+		}
+		delete(keys, k)
+		if len(keys) <= maxSigningKeys {
+			break
+		}
+	}
 }
 
 func startHealthServer(nc *nats.Conn) {
