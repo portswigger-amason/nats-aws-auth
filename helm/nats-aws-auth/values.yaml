@@ -18,6 +18,7 @@ rbac:
 kms:
   aliasPrefix: "nats"
   # region: ""  # uses SDK default
+  appAccountKeyAlias: ""  # e.g. "nats-app-account". When set, uses stable KMS key for APP account
 
 # NATS connection
 nats:
