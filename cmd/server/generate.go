@@ -245,7 +245,7 @@ default_sentinel: %s
 resolver: {
     type: full
     dir: './jwt'
-    allow_delete: false
+    allow_delete: true
     interval: "2m"
     limit: 1000
 }

@@ -334,12 +334,13 @@ func ensureAppAccountExists(conn *natsConnection, appJWT, appAccountName string,
 		}
 		// If KMS key is configured, verify the existing account matches
 		if appAccountKey != nil && appClaims.Subject != appAccountKey.PublicKey {
-			log.Fatalf("APP account public key mismatch: NATS has %s, KMS has %s. "+
-				"This likely means the APP account was created with a different key. "+
-				"Delete the existing APP account JWT from the resolver and restart.",
-				appClaims.Subject, appAccountKey.PublicKey)
+			log.Printf("APP account public key mismatch: NATS has %s, KMS has %s", appClaims.Subject, appAccountKey.PublicKey)
+			log.Println("  Deleting old APP account from resolver to replace with KMS-backed identity...")
+			deleteAccountFromResolver(conn, appClaims.Subject)
+			// Fall through to create a new account with the KMS key
+		} else {
+			return appClaims
 		}
-		return appClaims
 	}
 
 	log.Println("APP account not found, creating new APP account...")
@@ -381,6 +382,24 @@ func ensureAppAccountExists(conn *natsConnection, appJWT, appAccountName string,
 	log.Println()
 
 	return appClaims
+}
+
+func deleteAccountFromResolver(conn *natsConnection, accountPubKey string) {
+	// Create a revocation claim signed by the operator
+	claim := jwt.NewGenericClaims(accountPubKey)
+	claim.IssuedAt = time.Now().Unix()
+
+	token, err := claim.EncodeWithSigner(conn.operatorKP, conn.operatorSigner)
+	if err != nil {
+		log.Fatalf("Failed to encode delete claim: %v", err)
+	}
+
+	resp, err := conn.nc.Request("$SYS.REQ.CLAIMS.DELETE", []byte(token), 5*time.Second)
+	if err != nil {
+		log.Fatalf("Failed to delete account from resolver: %v", err)
+	}
+	log.Printf("  Delete response: %s", string(resp.Data))
+	log.Println()
 }
 
 func decodeAuthAccount(authJWT, authAccountName string) *jwt.AccountClaims {
