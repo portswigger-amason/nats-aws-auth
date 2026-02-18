@@ -156,6 +156,21 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--region="
 
+  - it: should set --app-account-key-alias when kms.appAccountKeyAlias is provided
+    set:
+      kms:
+        appAccountKeyAlias: "nats-app-account"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--app-account-key-alias=nats-app-account"
+
+  - it: should not set --app-account-key-alias when kms.appAccountKeyAlias is not provided
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--app-account-key-alias="
+
   - it: should set resource limits and requests
     set:
       resources:

@@ -15,6 +15,7 @@ import (
 func main() {
 	// Common flags
 	var generate = flag.Bool("generate", false, "Generate a config file for nats-server to stdout and exit")
+	var generateCreds = flag.Bool("generate-credentials", false, "Generate NACK credentials file and exit")
 	var region = flag.String("region", "", "AWS region (uses AWS config/environment if not specified)")
 
 	// Config generation mode flags
@@ -22,6 +23,7 @@ func main() {
 	var sysAccountName = flag.String("sys-account", "SYS", "system account name")
 	var outputDir = flag.String("output", ".", "output directory for generated files")
 	var aliasPrefix = flag.String("alias-prefix", "nats", "prefix for KMS key aliases")
+	var appAccountKeyAlias = flag.String("app-account-key-alias", "", "KMS key alias for APP account (e.g. 'nats-app-account'). When set, uses a stable KMS-backed key for the APP account identity")
 
 	// Auth service mode flags
 	var authAccountName = flag.String("auth-account-name", "AUTH", "name of the AUTH account")
@@ -51,8 +53,13 @@ func main() {
 
 	if *generate {
 		runGenerate(ctx, *operatorName, *sysAccountName, *authAccountName, *region, *outputDir, *aliasPrefix)
+	} else if *generateCreds {
+		if *appAccountKeyAlias == "" {
+			log.Fatal("--app-account-key-alias is required for --generate-credentials")
+		}
+		runGenerateCredentials(ctx, *region, *appAccountKeyAlias, *outputDir)
 	} else {
 		authorizer := initAuthorizer(ctx, *authBackend, *jwksURL, *jwksPath, *jwtIssuer, *jwtAudience)
-		runAuthService(ctx, *authAccountName, *appAccountName, *region, *natsURL, authorizer)
+		runAuthService(ctx, *authAccountName, *appAccountName, *region, *natsURL, *appAccountKeyAlias, authorizer)
 	}
 }

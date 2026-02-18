@@ -35,6 +35,9 @@ spec:
             {{- if .Values.kms.region }}
             - --region={{ .Values.kms.region }}
             {{- end }}
+            {{- if .Values.kms.appAccountKeyAlias }}
+            - --app-account-key-alias={{ .Values.kms.appAccountKeyAlias }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health
