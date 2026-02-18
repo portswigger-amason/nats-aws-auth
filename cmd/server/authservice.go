@@ -211,7 +211,7 @@ func fetchAndConfigureAccounts(ctx context.Context, client *kms.Client, conn *na
 	authUserKP := createAuthUserKeyPair()
 
 	updateAuthAccount(conn, authClaims, signingKP, authUserKP)
-	updateAppAccount(conn, appClaims, signingKP)
+	updateAppAccount(conn, appClaims, signingKP, appAccountKey)
 
 	createSentinelCredentials(authClaims, signingKP)
 
@@ -479,7 +479,7 @@ func publishUpdatedAuthAccount(conn *natsConnection, authClaims *jwt.AccountClai
 	log.Println()
 }
 
-func updateAppAccount(conn *natsConnection, appClaims *jwt.AccountClaims, signingKP nkeys.KeyPair) {
+func updateAppAccount(conn *natsConnection, appClaims *jwt.AccountClaims, signingKP nkeys.KeyPair, appAccountKey *KMSKey) {
 	log.Println("Step 13: Configuring APP account (signing key + JetStream)...")
 
 	signingPubKey, _ := signingKP.PublicKey()
@@ -487,8 +487,19 @@ func updateAppAccount(conn *natsConnection, appClaims *jwt.AccountClaims, signin
 	if appClaims.SigningKeys == nil {
 		appClaims.SigningKeys = make(jwt.SigningKeys)
 	}
+
+	// Ensure the KMS key is always a signing key so pre-signed JWTs (e.g. NACK) remain valid
+	if appAccountKey != nil {
+		appClaims.SigningKeys.Add(appAccountKey.PublicKey)
+		log.Printf("  Ensured KMS key is a signing key: %s", appAccountKey.PublicKey)
+	}
+
 	appClaims.SigningKeys.Add(signingPubKey)
-	capSigningKeys(appClaims.SigningKeys, signingPubKey)
+	keysToKeep := []string{signingPubKey}
+	if appAccountKey != nil {
+		keysToKeep = append(keysToKeep, appAccountKey.PublicKey)
+	}
+	capSigningKeys(appClaims.SigningKeys, keysToKeep...)
 	log.Printf("  Added signing key: %s (total: %d)", signingPubKey, len(appClaims.SigningKeys))
 
 	appClaims.Limits.JetStreamLimits = jwt.JetStreamLimits{
@@ -800,17 +811,21 @@ func createSentinelUserJWTForAuthService(userPubKey, accountPubKey string, signi
 	return token, nil
 }
 
-// capSigningKeys trims keys to at most maxSigningKeys, keeping the key we
-// just added (currentKey). Old keys belong to previous pod restarts and are
-// safe to remove; the 5-key buffer handles rolling restarts where multiple
-// pods may briefly coexist.
-func capSigningKeys(keys jwt.SigningKeys, currentKey string) {
+// capSigningKeys trims keys to at most maxSigningKeys, keeping the keys in
+// keepKeys. Old keys belong to previous pod restarts and are safe to remove;
+// the 5-key buffer handles rolling restarts where multiple pods may briefly
+// coexist.
+func capSigningKeys(keys jwt.SigningKeys, keepKeys ...string) {
 	const maxSigningKeys = 5
 	if len(keys) <= maxSigningKeys {
 		return
 	}
+	keep := make(map[string]bool, len(keepKeys))
+	for _, k := range keepKeys {
+		keep[k] = true
+	}
 	for k := range keys {
-		if k == currentKey {
+		if keep[k] {
 			continue
 		}
 		delete(keys, k)
