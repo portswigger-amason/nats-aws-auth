@@ -5,17 +5,18 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"github.com/portswigger/nats-aws-auth/internal/auth"
+	"go.uber.org/zap"
 )
 
 // AuthCalloutHandler handles NATS auth callout requests
 type AuthCalloutHandler struct {
+	logger         *zap.Logger
 	signingKP      nkeys.KeyPair
 	authAccountPub string
 	targetAccount  string
@@ -31,52 +32,53 @@ func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
 		authCalloutRequests.WithLabelValues(status).Inc()
 	}()
 
-	log.Printf("[AUTH] Received auth request")
+	h.logger.Info("Received auth request")
 
 	authClaims, err := decodeAuthRequest(msg.Data)
 	if err != nil {
-		log.Printf("[AUTH] ERROR: Failed to decode auth request: %v", err)
+		h.logger.Error("Failed to decode auth request", zap.Error(err))
 		h.respondWithError(msg, "", "failed to decode authorization request")
 		return
 	}
 
-	logAuthRequest(authClaims)
+	h.logAuthRequest(authClaims)
 
 	authorized, userName, permissions := h.authorize(authClaims)
 
 	if !authorized {
-		log.Printf("[AUTH]   Decision: DENIED")
+		h.logger.Info("Authorization denied")
 		status = "denied"
 		h.respondWithError(msg, authClaims.UserNkey, "authorization denied")
 		return
 	}
 
-	log.Printf("[AUTH]   Decision: AUTHORIZED as '%s'", userName)
-	log.Printf("[AUTH]   Target account: %s", h.targetAccount)
-	log.Printf("[AUTH]   Server ID (audience): %s", authClaims.Server.ID)
+	h.logger.Info("User authorized",
+		zap.String("user", userName),
+		zap.String("target_account", h.targetAccount),
+		zap.String("server_id", authClaims.Server.ID))
 
 	userJWT, err := h.createUserJWTForCallout(authClaims.UserNkey, userName, permissions, authClaims.Server.ID)
 	if err != nil {
-		log.Printf("[AUTH] ERROR: Failed to create user JWT: %v", err)
+		h.logger.Error("Failed to create user JWT", zap.Error(err))
 		h.respondWithError(msg, authClaims.UserNkey, "internal error creating user JWT")
 		return
 	}
-	log.Printf("[AUTH]   User JWT created")
+	h.logger.Debug("User JWT created")
 
 	responseJWT, err := h.createAuthResponse(authClaims, userJWT)
 	if err != nil {
-		log.Printf("[AUTH] ERROR: Failed to create auth response: %v", err)
+		h.logger.Error("Failed to create auth response", zap.Error(err))
 		h.respondWithError(msg, authClaims.UserNkey, "internal error creating response")
 		return
 	}
 
 	if err := msg.Respond([]byte(responseJWT)); err != nil {
-		log.Printf("[AUTH] ERROR: Failed to send response: %v", err)
+		h.logger.Error("Failed to send response", zap.Error(err))
 		return
 	}
 
 	status = "authorized"
-	log.Printf("[AUTH]   Response sent successfully")
+	h.logger.Debug("Response sent successfully")
 }
 
 func decodeAuthRequest(data []byte) (*jwt.AuthorizationRequestClaims, error) {
@@ -84,16 +86,17 @@ func decodeAuthRequest(data []byte) (*jwt.AuthorizationRequestClaims, error) {
 	return jwt.DecodeAuthorizationRequestClaims(authRequestJWT)
 }
 
-func logAuthRequest(authClaims *jwt.AuthorizationRequestClaims) {
+func (h *AuthCalloutHandler) logAuthRequest(authClaims *jwt.AuthorizationRequestClaims) {
 	userNKey := authClaims.UserNkey
 	clientInfo := authClaims.ClientInformation
 	connect := authClaims.ConnectOptions
 
-	log.Printf("[AUTH]   User NKey: %s", userNKey)
-	log.Printf("[AUTH]   Client: %s (host: %s)", clientInfo.Name, clientInfo.Host)
-
 	authMethod := determineAuthMethod(connect)
-	log.Printf("[AUTH]   Auth method: %s", authMethod)
+	h.logger.Debug("Auth request details",
+		zap.String("user_nkey", userNKey),
+		zap.String("client_name", clientInfo.Name),
+		zap.String("client_host", clientInfo.Host),
+		zap.String("auth_method", authMethod))
 }
 
 func determineAuthMethod(connect jwt.ConnectOptions) string {
@@ -118,7 +121,7 @@ func (h *AuthCalloutHandler) authorize(claims *jwt.AuthorizationRequestClaims) (
 
 	authorized, userName, perms, err := h.authorizer.Authorize(token)
 	if err != nil {
-		log.Printf("[AUTH] Authorizer error: %v", err)
+		h.logger.Error("Authorizer error", zap.Error(err))
 		return false, "", jwt.UserPermissionLimits{}
 	}
 
@@ -193,7 +196,7 @@ func (h *AuthCalloutHandler) createAuthResponse(request *jwt.AuthorizationReques
 // jwt.NewAuthorizationResponseClaims requires a non-empty subject.
 func (h *AuthCalloutHandler) respondWithError(msg *nats.Msg, userNkey, errMsg string) {
 	if userNkey == "" {
-		log.Printf("[AUTH] ERROR: Cannot send error response (no user nkey): %s", errMsg)
+		h.logger.Error("Cannot send error response (no user nkey)", zap.String("error", errMsg))
 		return
 	}
 
@@ -203,11 +206,11 @@ func (h *AuthCalloutHandler) respondWithError(msg *nats.Msg, userNkey, errMsg st
 
 	token, err := response.Encode(h.signingKP)
 	if err != nil {
-		log.Printf("[AUTH] ERROR: Failed to encode error response: %v", err)
+		h.logger.Error("Failed to encode error response", zap.Error(err))
 		return
 	}
 
 	if err := msg.Respond([]byte(token)); err != nil {
-		log.Printf("[AUTH] ERROR: Failed to send error response: %v", err)
+		h.logger.Error("Failed to send error response", zap.Error(err))
 	}
 }

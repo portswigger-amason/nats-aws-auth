@@ -10,7 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
+	"os"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -243,7 +243,7 @@ func createKMSKey(ctx context.Context, client *kms.Client, prefix nkeys.PrefixBy
 			TargetKeyId: aws.String(keyID),
 		})
 		if err != nil {
-			log.Printf("Warning: failed to create alias %s: %v", aliasName, err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to create alias %s: %v\n", aliasName, err)
 		}
 	}
 

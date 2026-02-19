@@ -6,12 +6,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
+	"go.uber.org/zap"
 )
 
 // createNackUserClaims builds user claims for the NACK JetStream controller
@@ -47,58 +47,53 @@ func formatCredentials(userJWT, seed string) string {
 }
 
 // runGenerateCredentials generates NACK credentials signed by the APP account KMS key.
-func runGenerateCredentials(ctx context.Context, region, appAccountKeyAlias, outputDir string) {
-	client := setupAWSClient(ctx, region)
+func runGenerateCredentials(ctx context.Context, logger *zap.Logger, region, appAccountKeyAlias, outputDir string) {
+	client := setupAWSClient(ctx, logger, region)
 
-	log.Println("Generating NACK credentials...")
-	log.Println()
+	logger.Info("Generating NACK credentials...")
 
 	// Step 1: Get or create APP account key in KMS
-	log.Printf("Step 1: Getting/creating APP account key in KMS (alias: %s)...", appAccountKeyAlias)
+	logger.Info("Getting/creating APP account key in KMS...", zap.String("alias", appAccountKeyAlias))
 	appAccountKey, appExisted, err := getOrCreateKMSKey(ctx, client, nkeys.PrefixByteAccount, appAccountKeyAlias)
 	if err != nil {
-		log.Fatalf("Failed to get/create APP account key: %v", err)
+		logger.Fatal("Failed to get/create APP account key", zap.Error(err))
 	}
-	logKeyStatus("APP Account", appAccountKey, appExisted)
+	logKeyStatus(logger, "APP Account", appAccountKey, appExisted)
 
 	// Step 2: Generate NACK user keypair
-	log.Println("Step 2: Generating NACK user keypair...")
+	logger.Info("Generating NACK user keypair...")
 	nackKey, err := createLocalKey(nkeys.PrefixByteUser)
 	if err != nil {
-		log.Fatalf("Failed to create NACK user key: %v", err)
+		logger.Fatal("Failed to create NACK user key", zap.Error(err))
 	}
-	log.Printf("  NACK User Public Key: %s", nackKey.PublicKey)
-	log.Println()
+	logger.Debug("NACK User Public Key", zap.String("public_key", nackKey.PublicKey))
 
 	// Step 3: Create NACK user JWT signed by APP account key via KMS
-	log.Println("Step 3: Creating NACK user JWT (signed by APP account via KMS)...")
+	logger.Info("Creating NACK user JWT (signed by APP account via KMS)...")
 	nackClaims := createNackUserClaims(nackKey.PublicKey, appAccountKey.PublicKey)
 	appAccountKP := &dummyKeyPair{pubKey: appAccountKey.PublicKey}
 	appAccountSigner := createKMSSigner(ctx, client, appAccountKey.KeyID)
 
 	nackJWT, err := nackClaims.EncodeWithSigner(appAccountKP, appAccountSigner)
 	if err != nil {
-		log.Fatalf("Failed to encode NACK user JWT: %v", err)
+		logger.Fatal("Failed to encode NACK user JWT", zap.Error(err))
 	}
-	log.Println("  NACK user JWT created successfully")
-	log.Println()
+	logger.Debug("NACK user JWT created successfully")
 
 	// Step 4: Write credentials file
-	log.Println("Step 4: Writing NACK credentials file...")
+	logger.Info("Writing NACK credentials file...")
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		log.Fatalf("Failed to create output directory: %v", err)
+		logger.Fatal("Failed to create output directory", zap.Error(err))
 	}
 
 	credsContent := formatCredentials(nackJWT, nackKey.Seed)
 	credsPath := outputDir + "/nack.creds"
 	if err := os.WriteFile(credsPath, []byte(credsContent), 0600); err != nil {
-		log.Fatalf("Failed to write NACK credentials: %v", err)
+		logger.Fatal("Failed to write NACK credentials", zap.Error(err))
 	}
-	log.Printf("  NACK credentials written to: %s", credsPath)
-	log.Println()
+	logger.Debug("NACK credentials written", zap.String("path", credsPath))
 
-	log.Println("Credential generation complete!")
-	log.Println()
-	log.Println("Generated files:")
-	log.Printf("  - %s/nack.creds   (NACK JetStream controller credentials)", outputDir)
+	logger.Info("Credential generation complete!")
+	logger.Info("Generated files",
+		zap.String("credentials", fmt.Sprintf("%s/nack.creds", outputDir)))
 }

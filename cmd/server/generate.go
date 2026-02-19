@@ -6,164 +6,156 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
+	"go.uber.org/zap"
 )
 
 // runGenerate orchestrates the config generation process
-func runGenerate(ctx context.Context, operatorName, sysAccountName, authAccountName, region, outputDir, aliasPrefix string) {
-	client := setupAWSClient(ctx, region)
+func runGenerate(ctx context.Context, logger *zap.Logger, operatorName, sysAccountName, authAccountName, region, outputDir, aliasPrefix string) {
+	client := setupAWSClient(ctx, logger, region)
 
-	log.Println("Generating NATS AWS configuration...")
-	log.Println()
+	logger.Info("Generating NATS AWS configuration...")
 
 	// Setup KMS keys for Operator and SYS
-	operatorKey, sysKey := setupKMSKeys(ctx, client, aliasPrefix)
+	operatorKey, sysKey := setupKMSKeys(ctx, logger, client, aliasPrefix)
 
 	// Generate local keys for AUTH and Sentinel
-	authKey, sentinelKey := setupLocalKeys()
+	authKey, sentinelKey := setupLocalKeys(logger)
 
 	// Create all JWTs
 	operatorJWT, sysAccountJWT, authAccountJWT, sentinelUserJWT := createAllJWTs(
-		ctx, client, operatorKey, sysKey, authKey, sentinelKey,
+		ctx, logger, client, operatorKey, sysKey, authKey, sentinelKey,
 		operatorName, sysAccountName, authAccountName,
 	)
 
 	// Write configuration files
-	writeConfigFiles(outputDir, operatorJWT, sysAccountJWT, authAccountJWT, sentinelUserJWT, sysKey.PublicKey, authKey.PublicKey)
+	writeConfigFiles(logger, outputDir, operatorJWT, sysAccountJWT, authAccountJWT, sentinelUserJWT, sysKey.PublicKey, authKey.PublicKey)
 
-	log.Println()
-	log.Println("Configuration generation complete!")
-	log.Println()
-	log.Println("Generated files:")
-	log.Printf("  - %s/nats-server.conf   (NATS server configuration)", outputDir)
+	logger.Info("Configuration generation complete!")
+	logger.Info("Generated files",
+		zap.String("config", fmt.Sprintf("%s/nats-server.conf", outputDir)))
 }
 
-func setupAWSClient(ctx context.Context, region string) *kms.Client {
+func setupAWSClient(ctx context.Context, logger *zap.Logger, region string) *kms.Client {
 	cfg, err := loadAWSConfig(ctx, region)
 	if err != nil {
-		log.Fatalf("Failed to load AWS config: %v", err)
+		logger.Fatal("Failed to load AWS config", zap.Error(err))
 	}
 	return kms.NewFromConfig(cfg)
 }
 
-func setupKMSKeys(ctx context.Context, client *kms.Client, aliasPrefix string) (*KMSKey, *KMSKey) {
+func setupKMSKeys(ctx context.Context, logger *zap.Logger, client *kms.Client, aliasPrefix string) (*KMSKey, *KMSKey) {
 	// Get or create Operator key pair in KMS
-	log.Println("Step 1: Getting/creating Operator key pair in KMS...")
+	logger.Info("Getting/creating Operator key pair in KMS...")
 	operatorKey, operatorExisted, err := getOrCreateKMSKey(ctx, client, nkeys.PrefixByteOperator, aliasPrefix+"-operator")
 	if err != nil {
-		log.Fatalf("Failed to get/create operator key: %v", err)
+		logger.Fatal("Failed to get/create operator key", zap.Error(err))
 	}
-	logKeyStatus("Operator", operatorKey, operatorExisted)
+	logKeyStatus(logger, "Operator", operatorKey, operatorExisted)
 
 	// Get or create SYS Account key pair in KMS
-	log.Println("Step 2: Getting/creating SYS Account key pair in KMS...")
+	logger.Info("Getting/creating SYS Account key pair in KMS...")
 	sysKey, sysExisted, err := getOrCreateKMSKey(ctx, client, nkeys.PrefixByteAccount, aliasPrefix+"-sys-account")
 	if err != nil {
-		log.Fatalf("Failed to get/create SYS account key: %v", err)
+		logger.Fatal("Failed to get/create SYS account key", zap.Error(err))
 	}
-	logKeyStatus("SYS Account", sysKey, sysExisted)
+	logKeyStatus(logger, "SYS Account", sysKey, sysExisted)
 
 	return operatorKey, sysKey
 }
 
-func setupLocalKeys() (*LocalKey, *LocalKey) {
+func setupLocalKeys(logger *zap.Logger) (*LocalKey, *LocalKey) {
 	// Generate AUTH Account key pair locally
-	log.Println("Step 3: Generating AUTH Account key pair (local)...")
+	logger.Info("Generating AUTH Account key pair (local)...")
 	authKey, err := createLocalKey(nkeys.PrefixByteAccount)
 	if err != nil {
-		log.Fatalf("Failed to create AUTH account key: %v", err)
+		logger.Fatal("Failed to create AUTH account key", zap.Error(err))
 	}
-	log.Printf("  AUTH Account Public Key: %s", authKey.PublicKey)
-	log.Println()
+	logger.Debug("AUTH Account Public Key", zap.String("public_key", authKey.PublicKey))
 
 	// Generate Sentinel User key pair locally
-	log.Println("Step 4: Generating Sentinel User key pair (local)...")
+	logger.Info("Generating Sentinel User key pair (local)...")
 	sentinelKey, err := createLocalKey(nkeys.PrefixByteUser)
 	if err != nil {
-		log.Fatalf("Failed to create sentinel user key: %v", err)
+		logger.Fatal("Failed to create sentinel user key", zap.Error(err))
 	}
-	log.Printf("  Sentinel User Public Key: %s", sentinelKey.PublicKey)
-	log.Println()
+	logger.Debug("Sentinel User Public Key", zap.String("public_key", sentinelKey.PublicKey))
 
 	return authKey, sentinelKey
 }
 
 func createAllJWTs(
-	ctx context.Context, client *kms.Client,
+	ctx context.Context, logger *zap.Logger, client *kms.Client,
 	operatorKey, sysKey *KMSKey, authKey, sentinelKey *LocalKey,
 	operatorName, sysAccountName, authAccountName string,
 ) (string, string, string, string) {
 	operatorSigner := createKMSSigner(ctx, client, operatorKey.KeyID)
 
 	// Create Operator JWT (self-signed via KMS)
-	log.Println("Step 5: Creating Operator JWT...")
+	logger.Info("Creating Operator JWT...")
 	operatorJWT, err := createOperatorJWT(operatorKey.PublicKey, operatorName, sysKey.PublicKey, operatorSigner)
 	if err != nil {
-		log.Fatalf("Failed to create operator JWT: %v", err)
+		logger.Fatal("Failed to create operator JWT", zap.Error(err))
 	}
-	log.Println("  Operator JWT created successfully")
-	log.Println()
+	logger.Debug("Operator JWT created successfully")
 
 	// Create SYS Account JWT (signed by operator via KMS)
-	log.Println("Step 6: Creating SYS Account JWT (signed by operator)...")
+	logger.Info("Creating SYS Account JWT (signed by operator)...")
 	sysAccountJWT, err := createAccountJWT(sysKey.PublicKey, sysAccountName, operatorKey.PublicKey, operatorSigner)
 	if err != nil {
-		log.Fatalf("Failed to create SYS account JWT: %v", err)
+		logger.Fatal("Failed to create SYS account JWT", zap.Error(err))
 	}
-	log.Println("  SYS Account JWT created successfully")
-	log.Println()
+	logger.Debug("SYS Account JWT created successfully")
 
 	// Create AUTH Account JWT (signed by operator via KMS)
-	log.Println("Step 7: Creating AUTH Account JWT (signed by operator)...")
+	logger.Info("Creating AUTH Account JWT (signed by operator)...")
 	authAccountJWT, err := createAccountJWT(authKey.PublicKey, authAccountName, operatorKey.PublicKey, operatorSigner)
 	if err != nil {
-		log.Fatalf("Failed to create AUTH account JWT: %v", err)
+		logger.Fatal("Failed to create AUTH account JWT", zap.Error(err))
 	}
-	log.Println("  AUTH Account JWT created successfully")
-	log.Println()
+	logger.Debug("AUTH Account JWT created successfully")
 
 	// Create Sentinel User JWT (signed by AUTH account locally, bearer token)
-	log.Println("Step 8: Creating Sentinel User JWT (bearer token)...")
+	logger.Info("Creating Sentinel User JWT (bearer token)...")
 	sentinelUserJWT, err := createSentinelUserJWTForGenerate(sentinelKey.PublicKey, authKey.KeyPair)
 	if err != nil {
-		log.Fatalf("Failed to create sentinel user JWT: %v", err)
+		logger.Fatal("Failed to create sentinel user JWT", zap.Error(err))
 	}
-	log.Println("  Sentinel User JWT created successfully")
-	log.Println()
+	logger.Debug("Sentinel User JWT created successfully")
 
 	return operatorJWT, sysAccountJWT, authAccountJWT, sentinelUserJWT
 }
 
-func writeConfigFiles(outputDir, operatorJWT, sysAccountJWT, authAccountJWT, sentinelUserJWT, sysAccountPubKey, authAccountPubKey string) {
-	log.Println("Step 9: Generating NATS server configuration...")
+func writeConfigFiles(logger *zap.Logger, outputDir, operatorJWT, sysAccountJWT, authAccountJWT, sentinelUserJWT, sysAccountPubKey, authAccountPubKey string) {
+	logger.Info("Generating NATS server configuration...")
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		log.Fatalf("Failed to create output directory: %v", err)
+		logger.Fatal("Failed to create output directory", zap.Error(err))
 	}
 
 	serverConfig := generateServerConfig(operatorJWT, sysAccountJWT, authAccountJWT, sentinelUserJWT, sysAccountPubKey, authAccountPubKey)
 	configPath := outputDir + "/nats-server.conf"
 	if err := os.WriteFile(configPath, []byte(serverConfig), 0644); err != nil {
-		log.Fatalf("Failed to write server config: %v", err)
+		logger.Fatal("Failed to write server config", zap.Error(err))
 	}
-	log.Printf("  Server config written to: %s", configPath)
+	logger.Debug("Server config written", zap.String("path", configPath))
 }
 
-func logKeyStatus(keyType string, key *KMSKey, existed bool) {
+func logKeyStatus(logger *zap.Logger, keyType string, key *KMSKey, existed bool) {
 	if existed {
-		log.Printf("  Using existing %s key", keyType)
+		logger.Debug("Using existing key", zap.String("type", keyType))
 	} else {
-		log.Printf("  Created new %s key", keyType)
+		logger.Debug("Created new key", zap.String("type", keyType))
 	}
-	log.Printf("  %s Public Key: %s", keyType, key.PublicKey)
-	log.Printf("  KMS Key ID: %s", key.KeyID)
-	log.Println()
+	logger.Debug("Key details",
+		zap.String("type", keyType),
+		zap.String("public_key", key.PublicKey),
+		zap.String("kms_key_id", key.KeyID))
 }
 
 func createOperatorJWT(operatorPubKey, operatorName, systemAccount string, signer jwt.SignFn) (string, error) {
