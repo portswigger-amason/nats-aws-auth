@@ -1,0 +1,16 @@
+{{- if .Values.metrics.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "nats-aws-auth.fullname" . }}
+  labels: {{- include "nats-aws-auth.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "nats-aws-auth.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      {{- with .Values.metrics.podMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+{{- end }}

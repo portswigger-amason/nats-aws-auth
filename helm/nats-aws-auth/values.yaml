@@ -44,6 +44,12 @@ jwt:
 # HTTP server
 port: 8080
 
+# Prometheus metrics
+metrics:
+  podMonitor:
+    enabled: true
+    # interval: 30s  # uses Prometheus default if unset
+
 # Logging
 logLevel: info
 
