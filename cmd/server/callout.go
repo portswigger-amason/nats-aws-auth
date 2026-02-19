@@ -24,6 +24,13 @@ type AuthCalloutHandler struct {
 
 // HandleAuthRequest processes an incoming auth callout request
 func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
+	start := time.Now()
+	status := "error"
+	defer func() {
+		authCalloutDuration.Observe(time.Since(start).Seconds())
+		authCalloutRequests.WithLabelValues(status).Inc()
+	}()
+
 	log.Printf("[AUTH] Received auth request")
 
 	authClaims, err := decodeAuthRequest(msg.Data)
@@ -39,6 +46,7 @@ func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
 
 	if !authorized {
 		log.Printf("[AUTH]   Decision: DENIED")
+		status = "denied"
 		h.respondWithError(msg, authClaims.UserNkey, "authorization denied")
 		return
 	}
@@ -67,6 +75,7 @@ func (h *AuthCalloutHandler) HandleAuthRequest(msg *nats.Msg) {
 		return
 	}
 
+	status = "authorized"
 	log.Printf("[AUTH]   Response sent successfully")
 }
 

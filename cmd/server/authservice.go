@@ -14,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/nats-io/jwt/v2"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"github.com/portswigger/nats-aws-auth/internal/auth"
@@ -836,6 +837,18 @@ func capSigningKeys(keys jwt.SigningKeys, keepKeys ...string) {
 }
 
 func startHealthServer(nc *nats.Conn) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if nc.IsConnected() {
+				authServiceUp.Set(1)
+			} else {
+				authServiceUp.Set(0)
+			}
+		}
+	}()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if !nc.IsConnected() {
@@ -845,6 +858,7 @@ func startHealthServer(nc *nats.Conn) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprintln(w, "ok")
 	})
+	mux.Handle("/metrics", promhttp.Handler())
 
 	log.Println("Health server listening on :8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
