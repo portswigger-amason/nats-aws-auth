@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 520" font-family="sans-serif" font-size="13">
+
+  <!-- Title -->
+  <text x="410" y="24" text-anchor="middle" font-weight="bold" font-size="16" fill="#1a1a2e">nats-aws-auth — Authentication Architecture</text>
+
+  <!-- Path A Label -->
+  <text x="30" y="58" font-weight="bold" font-size="12" fill="#4a6cf7">Path A: Auth Callout (Applications)</text>
+
+  <!-- App Pod -->
+  <rect x="20" y="72" width="130" height="90" rx="8" fill="#f0f4ff" stroke="#4a6cf7" stroke-width="1.5"/>
+  <text x="85" y="100" text-anchor="middle" font-weight="bold" fill="#1a1a2e">Application</text>
+  <text x="85" y="118" text-anchor="middle" fill="#555">Pod</text>
+  <text x="85" y="140" text-anchor="middle" font-size="11" fill="#888">K8s SA Token</text>
+  <text x="85" y="154" text-anchor="middle" font-size="10" fill="#aaa">(aud: nats, 1h expiry)</text>
+
+  <!-- Arrow: App Pod → NATS Server -->
+  <line x1="150" y1="105" x2="248" y2="105" stroke="#4a6cf7" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <text x="199" y="97" text-anchor="middle" font-size="10" fill="#4a6cf7">bearer token</text>
+
+  <!-- NATS Server -->
+  <rect x="250" y="72" width="150" height="90" rx="8" fill="#eaffea" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="325" y="100" text-anchor="middle" font-weight="bold" fill="#1a1a2e">NATS Server</text>
+  <text x="325" y="118" text-anchor="middle" fill="#555">(3-node cluster)</text>
+  <text x="325" y="140" text-anchor="middle" font-size="11" fill="#888">Unknown user →</text>
+  <text x="325" y="154" text-anchor="middle" font-size="11" fill="#888">triggers callout</text>
+
+  <!-- Arrow: NATS Server → nats-aws-auth -->
+  <line x1="400" y1="100" x2="498" y2="100" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <text x="449" y="92" text-anchor="middle" font-size="10" fill="#27ae60">$SYS.REQ.USER.AUTH</text>
+
+  <!-- nats-aws-auth -->
+  <rect x="500" y="72" width="160" height="90" rx="8" fill="#fdeef8" stroke="#9b59b6" stroke-width="1.5"/>
+  <text x="580" y="100" text-anchor="middle" font-weight="bold" fill="#1a1a2e">nats-aws-auth</text>
+  <text x="580" y="118" text-anchor="middle" fill="#555">Auth Callout</text>
+  <text x="580" y="140" text-anchor="middle" font-size="11" fill="#888">Validates token,</text>
+  <text x="580" y="154" text-anchor="middle" font-size="11" fill="#888">issues user JWT</text>
+
+  <!-- Return arrow: nats-aws-auth → NATS → App -->
+  <line x1="500" y1="130" x2="400" y2="130" stroke="#9b59b6" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
+  <text x="449" y="147" text-anchor="middle" font-size="10" fill="#9b59b6">user JWT response</text>
+  <line x1="250" y1="130" x2="150" y2="130" stroke="#4a6cf7" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-blue)"/>
+  <text x="199" y="147" text-anchor="middle" font-size="10" fill="#4a6cf7">authorised + connect</text>
+
+  <!-- EKS OIDC / JWKS -->
+  <rect x="690" y="72" width="110" height="90" rx="8" fill="#e8f4fd" stroke="#0097a7" stroke-width="1.5"/>
+  <text x="745" y="100" text-anchor="middle" font-weight="bold" fill="#1a1a2e">EKS OIDC</text>
+  <text x="745" y="118" text-anchor="middle" fill="#555">JWKS</text>
+  <text x="745" y="140" text-anchor="middle" font-size="11" fill="#888">Token signature</text>
+  <text x="745" y="154" text-anchor="middle" font-size="11" fill="#888">verification</text>
+
+  <!-- Arrow: nats-aws-auth → JWKS -->
+  <line x1="660" y1="117" x2="688" y2="117" stroke="#0097a7" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
+
+  <!-- Divider -->
+  <line x1="20" y1="190" x2="800" y2="190" stroke="#ddd" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- Path B Label -->
+  <text x="30" y="218" font-weight="bold" font-size="12" fill="#f5a623">Path B: Pre-signed Credentials (NACK)</text>
+
+  <!-- NACK -->
+  <rect x="20" y="232" width="130" height="80" rx="8" fill="#fff8e7" stroke="#f5a623" stroke-width="1.5"/>
+  <text x="85" y="260" text-anchor="middle" font-weight="bold" fill="#1a1a2e">NACK</text>
+  <text x="85" y="278" text-anchor="middle" fill="#555">Controller</text>
+  <text x="85" y="298" text-anchor="middle" font-size="11" fill="#888">(nack.creds)</text>
+
+  <!-- Arrow: NACK → NATS Server -->
+  <line x1="150" y1="265" x2="248" y2="265" stroke="#f5a623" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+  <text x="199" y="257" text-anchor="middle" font-size="10" fill="#f5a623">pre-signed JWT</text>
+
+  <!-- NATS Server (path B) -->
+  <rect x="250" y="232" width="150" height="80" rx="8" fill="#eaffea" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="325" y="260" text-anchor="middle" font-weight="bold" fill="#1a1a2e">NATS Server</text>
+  <text x="325" y="278" text-anchor="middle" fill="#555">JWT validated</text>
+  <text x="325" y="296" text-anchor="middle" font-size="11" fill="#888">via APP account key</text>
+
+  <!-- No auth callout label -->
+  <text x="460" y="270" font-size="11" fill="#888" font-style="italic">No auth callout.</text>
+  <text x="460" y="286" font-size="11" fill="#888" font-style="italic">Direct connection.</text>
+
+  <!-- Divider -->
+  <line x1="20" y1="338" x2="800" y2="338" stroke="#ddd" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- KMS Key Hierarchy Label -->
+  <text x="30" y="366" font-weight="bold" font-size="12" fill="#c0392b">KMS Key Hierarchy (AWS KMS — Ed25519)</text>
+
+  <!-- KMS Keys -->
+  <rect x="20" y="380" width="180" height="120" rx="8" fill="#fef0f0" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="110" y="402" text-anchor="middle" font-weight="bold" font-size="12" fill="#1a1a2e">AWS KMS</text>
+  <line x1="30" y1="410" x2="190" y2="410" stroke="#c0392b" stroke-width="0.5" stroke-dasharray="3,2"/>
+  <text x="36" y="428" font-size="11" fill="#555">nats-operator</text>
+  <text x="36" y="446" font-size="11" fill="#555">nats-sys-account</text>
+  <text x="36" y="464" font-size="11" fill="#555">nats-app-account</text>
+  <text x="36" y="485" font-size="10" fill="#c0392b">Private keys never leave KMS</text>
+
+  <!-- In-Memory Keys -->
+  <rect x="230" y="380" width="190" height="120" rx="8" fill="#f5f5f5" stroke="#888" stroke-width="1.5"/>
+  <text x="325" y="402" text-anchor="middle" font-weight="bold" font-size="12" fill="#1a1a2e">In-Memory (ephemeral)</text>
+  <line x1="240" y1="410" x2="410" y2="410" stroke="#888" stroke-width="0.5" stroke-dasharray="3,2"/>
+  <text x="236" y="428" font-size="11" fill="#555">AUTH signing key</text>
+  <text x="236" y="446" font-size="11" fill="#555">APP signing key</text>
+  <text x="236" y="464" font-size="11" fill="#555">Service user keypairs</text>
+  <text x="236" y="485" font-size="10" fill="#888">Regenerated each restart</text>
+
+  <!-- Arrow: KMS → In-Memory -->
+  <line x1="200" y1="440" x2="228" y2="440" stroke="#888" stroke-width="1.5" marker-end="url(#arrow-grey)"/>
+
+  <!-- Observability -->
+  <rect x="500" y="380" width="160" height="120" rx="8" fill="#eaffea" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="580" y="402" text-anchor="middle" font-weight="bold" font-size="12" fill="#1a1a2e">Observability</text>
+  <line x1="510" y1="410" x2="650" y2="410" stroke="#27ae60" stroke-width="0.5" stroke-dasharray="3,2"/>
+  <text x="516" y="430" font-size="11" fill="#555">:8080/metrics</text>
+  <text x="524" y="446" font-size="10" fill="#888">auth_callout_requests</text>
+  <text x="524" y="460" font-size="10" fill="#888">auth_callout_duration</text>
+  <text x="524" y="474" font-size="10" fill="#888">auth_service_up</text>
+  <text x="516" y="492" font-size="11" fill="#555">:8080/health</text>
+
+  <!-- Performance Note -->
+  <rect x="690" y="380" width="110" height="120" rx="8" fill="#f0f4ff" stroke="#4a6cf7" stroke-width="1.5"/>
+  <text x="745" y="402" text-anchor="middle" font-weight="bold" font-size="12" fill="#1a1a2e">Hot Path</text>
+  <line x1="700" y1="410" x2="790" y2="410" stroke="#4a6cf7" stroke-width="0.5" stroke-dasharray="3,2"/>
+  <text x="745" y="432" text-anchor="middle" font-size="11" fill="#555">~5-20ms</text>
+  <text x="745" y="450" text-anchor="middle" font-size="11" fill="#555">per callout</text>
+  <text x="745" y="474" text-anchor="middle" font-size="10" fill="#888">Zero KMS</text>
+  <text x="745" y="488" text-anchor="middle" font-size="10" fill="#888">calls at</text>
+  <text x="745" y="502" text-anchor="middle" font-size="10" fill="#888">runtime</text>
+
+  <!-- Arrow markers -->
+  <defs>
+    <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#4a6cf7"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#27ae60"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#9b59b6"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#f5a623"/>
+    </marker>
+    <marker id="arrow-teal" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#0097a7"/>
+    </marker>
+    <marker id="arrow-grey" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#888"/>
+    </marker>
+  </defs>
+
+</svg>

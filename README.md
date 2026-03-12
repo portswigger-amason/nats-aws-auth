@@ -2,6 +2,10 @@
 
 A NATS authentication service that uses AWS KMS for cryptographic key management. Operator and system account private keys never leave KMS — only public keys are stored locally.
 
+## Architecture
+
+![Architecture diagram](architecture.svg)
+
 ## What it does
 
 This tool has three modes:
